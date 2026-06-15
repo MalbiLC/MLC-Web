@@ -32,7 +32,10 @@ export interface Student {
   trial_done_at: string | null
   followup_date: string | null
   interested_subjects: string | null
+  trial_teacher_id: string | null
+  enrolled_at: string | null
   additional_notes: string | null
   created_at: string
   subject_sessions?: SubjectSession[]
+  trial_teacher?: { id: string; full_name: string }
 }

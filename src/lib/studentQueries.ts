@@ -9,6 +9,7 @@ export async function getStudents(type: 'potential' | 'current'): Promise<Studen
     .from('students')
     .select(`
       *,
+      trial_teacher:teachers!trial_teacher_id ( id, full_name ),
       subject_sessions:student_subject_sessions (
         id, student_id, subject_id, teacher_id, sessions_remaining, created_at,
         subject:subjects ( id, name ),
@@ -21,6 +22,7 @@ export async function getStudents(type: 'potential' | 'current'): Promise<Studen
   if (error) throw error
   return (data || []).map((s: any) => ({
     ...s,
+    trial_teacher: s.trial_teacher || null,
     subject_sessions: s.subject_sessions || [],
   }))
 }
@@ -31,10 +33,12 @@ export async function createPotentialStudent(data: {
   parent_contact: string
   reached_out_at: string
   interested_subjects: string
+  trial_teacher_id?: string
 }) {
   const sb = createClient()
   const { error } = await sb.from('students').insert({
     ...data,
+    trial_teacher_id: data.trial_teacher_id || null,
     student_type: 'potential',
     status: 'potential_no_trial',
   })
@@ -74,23 +78,53 @@ export async function createRecurringStudent(data: {
   }
 }
 
+export async function enrollStudent(
+  id: string,
+  data: {
+    full_name: string
+    date_of_birth?: string
+    parent_name: string
+    parent_contact: string
+    package: string
+    additional_notes?: string
+    subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number }>
+  }
+) {
+  const sb = createClient()
+  const { subjects, ...studentData } = data
+
+  // Convert in place: update student_type, status, enrolled_at
+  const { error } = await sb.from('students').update({
+    ...studentData,
+    student_type: 'current',
+    status: 'ongoing',
+    enrolled_at: new Date().toISOString(),
+  }).eq('id', id)
+
+  if (error) throw error
+
+  // Add subject sessions
+  if (subjects.length > 0) {
+    const { error: subErr } = await sb.from('student_subject_sessions').insert(
+      subjects.map(s => ({
+        student_id: id,
+        subject_id: s.subject_id,
+        teacher_id: s.teacher_id || null,
+        sessions_remaining: s.sessions,
+      }))
+    )
+    if (subErr) throw subErr
+  }
+}
+
 export async function updateStudentStatus(id: string, status: StudentStatus) {
   const sb = createClient()
   const { error } = await sb.from('students').update({ status }).eq('id', id)
   if (error) throw error
 }
 
-export async function updateSubjectSessions(id: string, sessions_remaining: number) {
+export async function updateTrialTeacher(id: string, trial_teacher_id: string | null) {
   const sb = createClient()
-  const { error } = await sb
-    .from('student_subject_sessions')
-    .update({ sessions_remaining })
-    .eq('id', id)
-  if (error) throw error
-}
-
-export async function deleteStudent(id: string) {
-  const sb = createClient()
-  const { error } = await sb.from('students').delete().eq('id', id)
+  const { error } = await sb.from('students').update({ trial_teacher_id }).eq('id', id)
   if (error) throw error
 }
