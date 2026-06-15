@@ -1,0 +1,96 @@
+import { createClient } from '@/lib/supabase/client'
+import type { Student, StudentStatus } from '@/types/students'
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+export async function getStudents(type: 'potential' | 'current'): Promise<Student[]> {
+  const sb = createClient()
+  const { data, error } = await sb
+    .from('students')
+    .select(`
+      *,
+      subject_sessions:student_subject_sessions (
+        id, student_id, subject_id, teacher_id, sessions_remaining, created_at,
+        subject:subjects ( id, name ),
+        teacher:teachers ( id, full_name )
+      )
+    `)
+    .eq('student_type', type)
+    .order('full_name')
+
+  if (error) throw error
+  return (data || []).map((s: any) => ({
+    ...s,
+    subject_sessions: s.subject_sessions || [],
+  }))
+}
+
+export async function createPotentialStudent(data: {
+  full_name: string
+  parent_name: string
+  parent_contact: string
+  reached_out_at: string
+  interested_subjects: string
+}) {
+  const sb = createClient()
+  const { error } = await sb.from('students').insert({
+    ...data,
+    student_type: 'potential',
+    status: 'potential_no_trial',
+  })
+  if (error) throw error
+}
+
+export async function createRecurringStudent(data: {
+  full_name: string
+  date_of_birth?: string
+  parent_name: string
+  parent_contact: string
+  package: string
+  additional_notes?: string
+  subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number }>
+}) {
+  const sb = createClient()
+  const { subjects, ...studentData } = data
+
+  const { data: student, error } = await sb
+    .from('students')
+    .insert({ ...studentData, student_type: 'current', status: 'ongoing' })
+    .select('id')
+    .single()
+
+  if (error) throw error
+
+  if (subjects.length > 0) {
+    const { error: subErr } = await sb.from('student_subject_sessions').insert(
+      subjects.map(s => ({
+        student_id: student.id,
+        subject_id: s.subject_id,
+        teacher_id: s.teacher_id || null,
+        sessions_remaining: s.sessions,
+      }))
+    )
+    if (subErr) throw subErr
+  }
+}
+
+export async function updateStudentStatus(id: string, status: StudentStatus) {
+  const sb = createClient()
+  const { error } = await sb.from('students').update({ status }).eq('id', id)
+  if (error) throw error
+}
+
+export async function updateSubjectSessions(id: string, sessions_remaining: number) {
+  const sb = createClient()
+  const { error } = await sb
+    .from('student_subject_sessions')
+    .update({ sessions_remaining })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteStudent(id: string) {
+  const sb = createClient()
+  const { error } = await sb.from('students').delete().eq('id', id)
+  if (error) throw error
+}
