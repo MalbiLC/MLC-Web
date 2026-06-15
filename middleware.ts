@@ -1,77 +1,40 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Pass through static assets and auth routes immediately
-  if (
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/auth') ||
-    pathname.includes('.')
-  ) {
-    return NextResponse.next()
-  }
+  // Check for Supabase auth token in cookies
+  const token = request.cookies.get('sb-access-token')?.value ||
+    [...request.cookies.getAll()].find(c => c.name.includes('auth-token'))?.value
 
-  let response = NextResponse.next({ request: { headers: request.headers } })
+  const isLoggedIn = !!token
+  const isLoginPage = pathname === '/login'
+  const isAuthRoute = pathname.startsWith('/auth')
+  const isRoot = pathname === '/'
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          )
-          response = NextResponse.next({ request: { headers: request.headers } })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
-  // Refresh session tokens — do not remove
-  const { data: { user } } = await supabase.auth.getUser()
+  // Always allow auth routes through
+  if (isAuthRoute) return NextResponse.next()
 
   // Root redirect
-  if (pathname === '/') {
+  if (isRoot) {
     return NextResponse.redirect(
-      new URL(user ? '/dashboard' : '/login', request.url)
+      new URL(isLoggedIn ? '/dashboard' : '/login', request.url)
     )
   }
 
-  // Not logged in → redirect to login
-  if (!user && pathname !== '/login') {
+  // Not logged in → login page
+  if (!isLoggedIn && !isLoginPage) {
     const url = new URL('/login', request.url)
     url.searchParams.set('next', pathname)
     return NextResponse.redirect(url)
   }
 
-  // Already logged in → skip login page
-  if (user && pathname === '/login') {
+  // Already logged in → skip login
+  if (isLoggedIn && isLoginPage) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
-  // Finance page → owner only
-  if (user && pathname.startsWith('/finance')) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (profile?.role !== 'owner') {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
-  }
-
-  return response
+  return NextResponse.next()
 }
 
 export const config = {
