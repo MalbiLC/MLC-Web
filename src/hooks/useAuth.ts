@@ -11,35 +11,16 @@ export function useAuth(requireRole?: 'owner') {
   const router = useRouter()
 
   useEffect(() => {
-    const check = async () => {
-      const sb = createClient()
-      const { data: { user } } = await sb.auth.getUser()
-
-      if (!user) {
-        router.replace('/login')
-        return
-      }
-
-      const { data } = await sb
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-
-      if (!data) {
-        router.replace('/login')
-        return
-      }
-
-      if (requireRole && data.role !== requireRole) {
-        router.replace('/dashboard')
-        return
-      }
-
-      setProfile(data as Profile)
-      setLoading(false)
-    }
-    check()
+    const sb = createClient()
+    sb.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.replace('/login'); return }
+      sb.from('profiles').select('*').eq('id', session.user.id).single().then(({ data }) => {
+        if (!data) { router.replace('/login'); return }
+        if (requireRole && data.role !== requireRole) { router.replace('/dashboard'); return }
+        setProfile(data as Profile)
+        setLoading(false)
+      })
+    }).catch(() => { router.replace('/login') })
   }, [router, requireRole])
 
   return { profile, loading }
