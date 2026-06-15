@@ -1,9 +1,11 @@
-// Student status types
 export type PotentialStatus = 'potential_no_trial' | 'potential_trial_done'
 export type RecurringStatus = 'ongoing' | 'low_session' | 'expired'
 export type StudentStatus = PotentialStatus | RecurringStatus
 export type StudentType = 'potential' | 'current'
 export type PackageType = 'private' | 'semi_private' | 'online'
+
+export const SUBJECTS = ['Math', 'Science', 'English', 'Mandarin'] as const
+export type SubjectName = typeof SUBJECTS[number]
 
 export interface SubjectSession {
   id: string
@@ -14,6 +16,12 @@ export interface SubjectSession {
   created_at: string
   subject?: { id: string; name: string }
   teacher?: { id: string; full_name: string }
+}
+
+export interface TrialSubjectTeacher {
+  subject: string
+  teacher_id: string
+  teacher_name?: string
 }
 
 export interface Student {
@@ -33,8 +41,10 @@ export interface Student {
   followup_date: string | null
   interested_subjects: string | null
   trial_teacher_id: string | null
-  enrolled_at: string | null
+  trial_subject_teachers: TrialSubjectTeacher[]
+  potential_notes: string | null
   additional_notes: string | null
+  enrolled_at: string | null
   created_at: string
   subject_sessions?: SubjectSession[]
   trial_teacher?: { id: string; full_name: string }
