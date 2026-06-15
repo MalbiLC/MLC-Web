@@ -29,8 +29,8 @@ export default function PotentialModal({ student, onClose, onSuccess }: Props) {
   )
   const [trialRows, setTrialRows] = useState<SubjectRow[]>(
     student?.trial_subject_teachers?.length
-      ? student.trial_subject_teachers.map(t => ({ subject_id: t.subject, teacher_id: t.teacher_id, sessions: 0 }))
-      : [{ subject_id: '', teacher_id: '', sessions: 0 }]
+      ? student.trial_subject_teachers.map(t => ({ subject_id: t.subject, teacher_id: t.teacher_id, sessions: 0, location: 'in_person' }))
+      : [{ subject_id: '', teacher_id: '', sessions: 0, location: 'in_person' }]
   )
   const [allSubjects, setAllSubjects] = useState<{ id: string; name: string }[]>([])
   const [teachers, setTeachers] = useState<{ id: string; full_name: string }[]>([])

@@ -63,7 +63,7 @@ export default function TeachersPage() {
               <Users size={13} /> Total students taught
             </div>
             <p className="text-2xl font-semibold text-gray-900">
-              {teachers.reduce((acc, t) => acc + (t.assignments?.length || 0), 0)}
+              {teachers.reduce((acc, t) => acc + (t.students?.length || 0), 0)}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">Across all teachers</p>
           </div>

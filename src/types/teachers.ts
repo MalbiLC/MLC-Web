@@ -1,5 +1,6 @@
 export type EmploymentType = 'full_time' | 'part_time'
 export type TeacherStatus = 'active' | 'inactive'
+export type LocationType = 'in_person' | 'online'
 
 export const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] as const
 export type DayName = typeof DAYS[number]
@@ -7,31 +8,23 @@ export type DayName = typeof DAYS[number]
 export interface AvailabilitySlot {
   id?: string
   teacher_id?: string
-  day_of_week: number // 0=Sun, 6=Sat
-  slot_start: string  // HH:MM
-  slot_end: string    // HH:MM
+  day_of_week: number
+  slot_start: string
+  slot_end: string
 }
 
-export interface TeacherStudentAssignment {
-  id: string
-  teacher_id: string
+// Student as seen from teacher's perspective
+export interface TeacherStudentEntry {
+  session_id: string        // student_subject_sessions.id
   student_id: string
-  subject_id: string | null
+  subject_id: string
+  teacher_id: string
+  sessions_remaining: number
+  location: LocationType
   rate_per_session: number | null
-  custom_rate: number | null
-  rate_note: string | null
-  assigned_at: string
-  student?: {
-    id: string
-    full_name: string
-    status: string
-    subject_sessions?: Array<{
-      subject_id: string
-      sessions_remaining: number
-      subject?: { id: string; name: string }
-    }>
-  }
-  subject?: { id: string; name: string }
+  student_name: string
+  subject_name: string
+  student_status: string
 }
 
 export interface Teacher {
@@ -47,5 +40,5 @@ export interface Teacher {
   created_at: string
   subjects?: { id: string; name: string }[]
   availability?: AvailabilitySlot[]
-  assignments?: TeacherStudentAssignment[]
+  students?: TeacherStudentEntry[]
 }

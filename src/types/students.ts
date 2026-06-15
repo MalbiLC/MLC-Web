@@ -13,6 +13,7 @@ export interface SubjectSession {
   subject_id: string
   teacher_id: string | null
   sessions_remaining: number
+  location: string
   created_at: string
   subject?: { id: string; name: string }
   teacher?: { id: string; full_name: string }

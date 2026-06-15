@@ -66,7 +66,7 @@ export async function createRecurringStudent(data: {
   parent_contact: string
   package: string
   additional_notes?: string
-  subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number }>
+  subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number; location?: string }>
 }) {
   const sb = createClient()
   const { subjects, ...studentData } = data
@@ -82,6 +82,7 @@ export async function createRecurringStudent(data: {
         subject_id: s.subject_id,
         teacher_id: s.teacher_id || null,
         sessions_remaining: s.sessions,
+        location: s.location || 'in_person',
       }))
     )
     if (subErr) throw subErr
@@ -95,7 +96,7 @@ export async function updateRecurringStudent(id: string, data: {
   parent_contact: string
   package: string
   additional_notes?: string
-  subjects: Array<{ id?: string; subject_id: string; teacher_id?: string; sessions: number }>
+  subjects: Array<{ id?: string; subject_id: string; teacher_id?: string; sessions: number; location?: string }>
 }) {
   const sb = createClient()
   const { subjects, ...studentData } = data
@@ -111,6 +112,7 @@ export async function updateRecurringStudent(id: string, data: {
         subject_id: s.subject_id,
         teacher_id: s.teacher_id || null,
         sessions_remaining: s.sessions,
+        location: s.location || 'in_person',
       }))
     )
     if (subErr) throw subErr
@@ -124,7 +126,7 @@ export async function enrollStudent(id: string, data: {
   parent_contact: string
   package: string
   additional_notes?: string
-  subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number }>
+  subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number; location?: string }>
 }) {
   const sb = createClient()
   const { subjects, ...studentData } = data
@@ -142,6 +144,7 @@ export async function enrollStudent(id: string, data: {
         subject_id: s.subject_id,
         teacher_id: s.teacher_id || null,
         sessions_remaining: s.sessions,
+        location: s.location || 'in_person',
       }))
     )
     if (subErr) throw subErr

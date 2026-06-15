@@ -37,8 +37,9 @@ export default function RecurringModal({ student, onClose, onSuccess }: Props) {
           subject_id: ss.subject_id,
           teacher_id: ss.teacher_id || '',
           sessions: ss.sessions_remaining,
+          location: ss.location || 'in_person',
         }))
-      : [{ subject_id: '', teacher_id: '', sessions: 0 }]
+      : [{ subject_id: '', teacher_id: '', sessions: 0, location: 'in_person' }]
   )
   const [allSubjects, setAllSubjects] = useState<{ id: string; name: string }[]>([])
   const [teachers, setTeachers] = useState<{ id: string; full_name: string }[]>([])
@@ -72,6 +73,7 @@ export default function RecurringModal({ student, onClose, onSuccess }: Props) {
         subjects: valid.map(s => ({
           subject_id: s.subject_id,
           teacher_id: s.teacher_id || undefined,
+          location: s.location || 'in_person',
           sessions: Number(s.sessions),
         })),
       }
