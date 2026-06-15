@@ -1,4 +1,12 @@
+'use client'
+
+import { useAuth } from '@/hooks/useAuth'
+
 export default function FinancePage() {
+  const { loading } = useAuth('owner')
+
+  if (loading) return null
+
   return (
     <div>
       <div className="page-header"><h1>Finance</h1></div>
