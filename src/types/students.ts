@@ -2,7 +2,7 @@ export type PotentialStatus = 'potential_no_trial' | 'potential_trial_done'
 export type RecurringStatus = 'ongoing' | 'low_session' | 'expired'
 export type StudentStatus = PotentialStatus | RecurringStatus
 export type StudentType = 'potential' | 'current'
-export type PackageType = 'private' | 'semi_private' | 'online'
+export type PackageType = 'group' | 'private' | 'semi_private' | 'online'
 
 export const SUBJECTS = ['Math', 'Science', 'English', 'Mandarin'] as const
 export type SubjectName = typeof SUBJECTS[number]

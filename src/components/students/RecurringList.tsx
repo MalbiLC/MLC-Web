@@ -12,7 +12,7 @@ import { ChevronDown, Pencil, Trash2, BookOpen } from 'lucide-react'
 interface Props { students: Student[]; onRefresh: () => void }
 
 const packageLabel: Record<string, string> = {
-  private: 'Private', semi_private: 'Semi-Private', online: 'Online',
+  group: 'Group Class', private: 'Private', semi_private: 'Semi-Private', online: 'Online',
 }
 
 export default function RecurringList({ students, onRefresh }: Props) {

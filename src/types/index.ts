@@ -2,6 +2,8 @@ export type UserRole = 'owner' | 'admin'
 export type EmploymentType = 'full_time' | 'part_time'
 export type StudentType = 'current' | 'potential'
 export type StudentStatus = 'ongoing' | 'expired'
+export type ClassType = 'group' | 'semi_private' | 'private' | 'private_online'
+
 export type SessionStatus = 'scheduled' | 'completed' | 'cancelled' | 'rescheduled'
 export type TeacherStatus = 'active' | 'inactive'
 export type InvoiceStatus = 'draft' | 'sent' | 'paid'

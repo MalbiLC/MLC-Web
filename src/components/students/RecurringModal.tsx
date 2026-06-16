@@ -18,8 +18,9 @@ interface Props {
 }
 
 const PACKAGES = [
-  { value: 'private', label: 'Private' },
+  { value: 'group', label: 'Group Class' },
   { value: 'semi_private', label: 'Semi-Private' },
+  { value: 'private', label: 'Private' },
   { value: 'online', label: 'Online' },
 ]
 
