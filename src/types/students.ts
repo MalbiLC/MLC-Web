@@ -47,6 +47,15 @@ export interface Student {
   additional_notes: string | null
   enrolled_at: string | null
   created_at: string
+  availability?: StudentAvailabilitySlot[]
   subject_sessions?: SubjectSession[]
   trial_teacher?: { id: string; full_name: string }
+}
+
+export interface StudentAvailabilitySlot {
+  id?: string
+  student_id?: string
+  day_of_week: number
+  slot_start: string
+  slot_end: string
 }

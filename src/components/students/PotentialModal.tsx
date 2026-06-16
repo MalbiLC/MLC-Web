@@ -5,6 +5,8 @@ import { createPotentialStudent, updatePotentialStudent } from '@/lib/studentQue
 import { createClient } from '@/lib/supabase/client'
 import SubjectTeacherPicker, { type SubjectRow } from './SubjectTeacherPicker'
 import { X } from 'lucide-react'
+import AvailabilityEditor from '@/components/teachers/AvailabilityEditor'
+import type { AvailabilitySlot } from '@/types/teachers'
 import { SUBJECTS } from '@/types/students'
 import { cn } from '@/lib/utils'
 import type { Student } from '@/types/students'
@@ -31,6 +33,9 @@ export default function PotentialModal({ student, onClose, onSuccess }: Props) {
     student?.trial_subject_teachers?.length
       ? student.trial_subject_teachers.map(t => ({ subject_id: t.subject, teacher_id: t.teacher_id, sessions: 0, location: 'in_person' }))
       : [{ subject_id: '', teacher_id: '', sessions: 0, location: 'in_person' }]
+  )
+  const [availability, setAvailability] = useState<AvailabilitySlot[]>(
+    student?.availability || []
   )
   const [allSubjects, setAllSubjects] = useState<{ id: string; name: string }[]>([])
   const [teachers, setTeachers] = useState<{ id: string; full_name: string }[]>([])
@@ -60,6 +65,7 @@ export default function PotentialModal({ student, onClose, onSuccess }: Props) {
       const payload = {
         ...form,
         interested_subjects: selectedSubjects.join(', '),
+        availability,
         trial_subject_teachers: trialRows
           .filter(r => r.subject_id)
           .map(r => ({
@@ -129,6 +135,8 @@ export default function PotentialModal({ student, onClose, onSuccess }: Props) {
             maxRows={4}
             label="Trial subject & teacher"
           />
+
+          <AvailabilityEditor slots={availability} onChange={setAvailability} />
 
           <div>
             <label className="label">Notes</label>

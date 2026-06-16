@@ -1,3 +1,4 @@
+import type { AvailabilitySlot } from '@/types/teachers'
 import { createClient } from '@/lib/supabase/client'
 import type { Student, StudentStatus, TrialSubjectTeacher } from '@/types/students'
 
@@ -10,6 +11,7 @@ export async function getStudents(type: 'potential' | 'current'): Promise<Studen
     .select(`
       *,
       trial_teacher:teachers!trial_teacher_id ( id, full_name ),
+      availability:student_availability ( id, student_id, day_of_week, slot_start, slot_end ),
       subject_sessions:student_subject_sessions (
         id, student_id, subject_id, teacher_id, sessions_remaining, created_at,
         subject:subjects ( id, name ),
@@ -23,6 +25,7 @@ export async function getStudents(type: 'potential' | 'current'): Promise<Studen
     ...s,
     trial_teacher: s.trial_teacher || null,
     trial_subject_teachers: s.trial_subject_teachers || [],
+    availability: s.availability || [],
     subject_sessions: s.subject_sessions || [],
   }))
 }
@@ -35,6 +38,7 @@ export async function createPotentialStudent(data: {
   interested_subjects: string
   trial_subject_teachers: TrialSubjectTeacher[]
   potential_notes?: string
+  availability?: AvailabilitySlot[]
 }) {
   const sb = createClient()
   const { error } = await sb.from('students').insert({
@@ -43,6 +47,16 @@ export async function createPotentialStudent(data: {
     status: 'potential_no_trial',
   })
   if (error) throw error
+
+  // Save availability
+  if (data.availability && data.availability.length > 0) {
+    const { data: student } = await sb.from('students').select('id').eq('full_name', data.full_name).order('created_at', { ascending: false }).limit(1).single()
+    if (student) {
+      await sb.from('student_availability').insert(
+        data.availability.map((a: AvailabilitySlot) => ({ ...a, student_id: student.id }))
+      )
+    }
+  }
 }
 
 export async function updatePotentialStudent(id: string, data: {
@@ -53,6 +67,7 @@ export async function updatePotentialStudent(id: string, data: {
   interested_subjects: string
   trial_subject_teachers: TrialSubjectTeacher[]
   potential_notes?: string
+  availability?: AvailabilitySlot[]
 }) {
   const sb = createClient()
   const { error } = await sb.from('students').update(data).eq('id', id)
@@ -67,9 +82,10 @@ export async function createRecurringStudent(data: {
   package: string
   additional_notes?: string
   subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number; location?: string }>
+  availability?: AvailabilitySlot[]
 }) {
   const sb = createClient()
-  const { subjects, ...studentData } = data
+  const { subjects, availability, ...studentData } = data
   const { data: student, error } = await sb
     .from('students')
     .insert({ ...studentData, student_type: 'current', status: 'ongoing' })
@@ -87,6 +103,9 @@ export async function createRecurringStudent(data: {
     )
     if (subErr) throw subErr
   }
+  if (availability && availability.length > 0) {
+    await sb.from('student_availability').insert(availability.map((a: AvailabilitySlot) => ({ ...a, student_id: student.id })))
+  }
 }
 
 export async function updateRecurringStudent(id: string, data: {
@@ -97,9 +116,10 @@ export async function updateRecurringStudent(id: string, data: {
   package: string
   additional_notes?: string
   subjects: Array<{ id?: string; subject_id: string; teacher_id?: string; sessions: number; location?: string }>
+  availability?: AvailabilitySlot[]
 }) {
   const sb = createClient()
-  const { subjects, ...studentData } = data
+  const { subjects, availability, ...studentData } = data
   const { error } = await sb.from('students').update(studentData).eq('id', id)
   if (error) throw error
 
@@ -117,6 +137,12 @@ export async function updateRecurringStudent(id: string, data: {
     )
     if (subErr) throw subErr
   }
+  if (availability) {
+    await sb.from('student_availability').delete().eq('student_id', id)
+    if (availability.length > 0) {
+      await sb.from('student_availability').insert(availability.map((a: AvailabilitySlot) => ({ ...a, student_id: id })))
+    }
+  }
 }
 
 export async function enrollStudent(id: string, data: {
@@ -127,9 +153,10 @@ export async function enrollStudent(id: string, data: {
   package: string
   additional_notes?: string
   subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number; location?: string }>
+  availability?: AvailabilitySlot[]
 }) {
   const sb = createClient()
-  const { subjects, ...studentData } = data
+  const { subjects, availability, ...studentData } = data
   const { error } = await sb.from('students').update({
     ...studentData,
     student_type: 'current',
