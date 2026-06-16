@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { getSessionsForDay, updateSessionStatus } from '@/lib/sessionQueries'
 import type { CalendarSession } from '@/lib/sessionQueries'
 import { cn, formatTime, formatDuration } from '@/lib/utils'
@@ -180,7 +181,24 @@ export default function DashboardPage() {
     finally { setLoading(false) }
   }, [viewDate])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+
+    // Realtime — refresh when sessions change
+    const sb = createClient()
+    const channel = sb
+      .channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, () => load())
+      .subscribe()
+
+    const onFocus = () => load()
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      sb.removeChannel(channel)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [load])
 
   const scheduled  = sessions.filter(s => s.status === 'scheduled').length
   const completed  = sessions.filter(s => s.status === 'completed').length

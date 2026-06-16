@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { getSessionsForWeek, generateICS, updateSessionStatus } from '@/lib/sessionQueries'
 import type { CalendarSession } from '@/lib/sessionQueries'
 import { cn, formatTime } from '@/lib/utils'
@@ -208,7 +209,25 @@ export default function CalendarPage() {
     } finally { setLoading(false) }
   }, [weekStart])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+
+    // Realtime subscription — refresh when any session changes
+    const sb = createClient()
+    const channel = sb
+      .channel('calendar-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, () => load())
+      .subscribe()
+
+    // Also refresh on window focus (catches changes from other tabs)
+    const onFocus = () => load()
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      sb.removeChannel(channel)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [load])
 
   const sessionsForDay = (day: Date) =>
     sessions.filter(s => sameDay(new Date(s.scheduled_at), day))

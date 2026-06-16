@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getSessionsForWeek } from '@/lib/sessionQueries'
+import { getAllSessions } from '@/lib/sessionQueries'
 import type { CalendarSession } from '@/lib/sessionQueries'
 import { cn, formatTime, formatDuration } from '@/lib/utils'
 import { Plus, X, MapPin, Monitor, Users, Trash2, Pencil, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react'
@@ -57,15 +57,24 @@ export default function SchedulingPage() {
     const { data: r } = await sb.from('rooms').select('*').order('type').order('name')
     setRooms(r || [])
 
-    // Load all upcoming sessions (next 6 months)
-    const from = new Date(); from.setMonth(from.getMonth() - 1)
-    const to   = new Date(); to.setMonth(to.getMonth() + 6)
-    const data = await getSessionsForWeek(from, to)
+    // Load all sessions (1 month back, 6 months ahead)
+    const data = await getAllSessions(1, 6)
     setSessions(data)
     setLoading(false)
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+
+    // Realtime refresh
+    const sb = createClient()
+    const channel = sb
+      .channel('scheduling-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, () => load())
+      .subscribe()
+
+    return () => { sb.removeChannel(channel) }
+  }, [load])
 
   // Filter sessions
   const filtered = sessions.filter(s => {
