@@ -31,26 +31,20 @@ export default function PotentialModal({ student, onClose, onSuccess }: Props) {
   )
   const [trialRows, setTrialRows] = useState<SubjectRow[]>(
     student?.trial_subject_teachers?.length
-      ? student.trial_subject_teachers.map(t => ({ subject_id: t.subject, teacher_id: t.teacher_id, sessions: 0, location: 'in_person' }))
-      : [{ subject_id: '', teacher_id: '', sessions: 0, location: 'in_person' }]
+      ? student.trial_subject_teachers.map(t => ({ subject_id: t.subject, sessions: 0, location: 'in_person' }))
+      : [{ subject_id: '', sessions: 0, location: 'in_person' }]
   )
   const [availability, setAvailability] = useState<AvailabilitySlot[]>(
     student?.availability || []
   )
   const [allSubjects, setAllSubjects] = useState<{ id: string; name: string }[]>([])
-  const [teachers, setTeachers] = useState<{ id: string; full_name: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     const sb = createClient()
-    Promise.all([
-      sb.from('subjects').select('id, name').in('name', [...SUBJECTS]).order('name'),
-      sb.from('teachers').select('id, full_name').eq('status', 'active').order('full_name'),
-    ]).then(([{ data: s }, { data: t }]) => {
-      setAllSubjects(s || [])
-      setTeachers(t || [])
-    })
+    sb.from('subjects').select('id, name').in('name', [...SUBJECTS]).order('name')
+      .then(({ data: s }) => setAllSubjects(s || []))
   }, [])
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -70,8 +64,8 @@ export default function PotentialModal({ student, onClose, onSuccess }: Props) {
           .filter(r => r.subject_id)
           .map(r => ({
             subject: r.subject_id,
-            teacher_id: r.teacher_id,
-            teacher_name: teachers.find(t => t.id === r.teacher_id)?.full_name || '',
+            teacher_id: '',
+            teacher_name: '',
           })),
       }
       if (isEdit && student) {
@@ -129,11 +123,8 @@ export default function PotentialModal({ student, onClose, onSuccess }: Props) {
           <SubjectTeacherPicker
             rows={trialRows}
             subjects={allSubjects}
-            teachers={teachers}
             onChange={setTrialRows}
-            showSessions={false}
-            maxRows={4}
-            label="Trial subject & teacher"
+            label="Trial subjects"
           />
 
           <AvailabilityEditor slots={availability} onChange={setAvailability} />

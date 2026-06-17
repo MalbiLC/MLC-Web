@@ -114,7 +114,7 @@ export default function RecurringList({ students, onRefresh }: Props) {
                           <div key={ss.id} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-gray-100 rounded-lg">
                             <div className="flex-1">
                               <p className="text-sm font-medium text-gray-800">{ss.subject?.name}</p>
-                              {ss.teacher && <p className="text-xs text-gray-400 mt-0.5">{ss.teacher.full_name}</p>}
+                              <p className="text-xs text-gray-400 mt-0.5">Teacher assigned via scheduling</p>
                             </div>
                             <div className="text-right">
                               <p className={cn(

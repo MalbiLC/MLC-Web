@@ -81,7 +81,7 @@ export async function createRecurringStudent(data: {
   parent_contact: string
   package: string
   additional_notes?: string
-  subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number; location?: string }>
+  subjects: Array<{ subject_id: string; sessions: number; location?: string }>
   availability?: AvailabilitySlot[]
 }) {
   const sb = createClient()
@@ -96,7 +96,6 @@ export async function createRecurringStudent(data: {
       subjects.map(s => ({
         student_id: student.id,
         subject_id: s.subject_id,
-        teacher_id: s.teacher_id || null,
         sessions_remaining: s.sessions,
         location: s.location || 'in_person',
       }))
@@ -130,7 +129,6 @@ export async function updateRecurringStudent(id: string, data: {
       subjects.map(s => ({
         student_id: id,
         subject_id: s.subject_id,
-        teacher_id: s.teacher_id || null,
         sessions_remaining: s.sessions,
         location: s.location || 'in_person',
       }))
@@ -152,7 +150,7 @@ export async function enrollStudent(id: string, data: {
   parent_contact: string
   package: string
   additional_notes?: string
-  subjects: Array<{ subject_id: string; teacher_id?: string; sessions: number; location?: string }>
+  subjects: Array<{ subject_id: string; sessions: number; location?: string }>
   availability?: AvailabilitySlot[]
 }) {
   const sb = createClient()
@@ -169,7 +167,6 @@ export async function enrollStudent(id: string, data: {
       subjects.map(s => ({
         student_id: id,
         subject_id: s.subject_id,
-        teacher_id: s.teacher_id || null,
         sessions_remaining: s.sessions,
         location: s.location || 'in_person',
       }))
