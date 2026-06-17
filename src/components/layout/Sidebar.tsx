@@ -7,16 +7,16 @@ import { MLC_LOGO } from '@/lib/logo'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Users, GraduationCap, Calendar,
-  Clock, FileText, Wallet, BarChart3, Settings, LogOut, Bell
+  Clock, FileText, Wallet, BarChart3, Settings, LogOut, Bell, Tag
 } from 'lucide-react'
 
 const nav = [
   { href: '/dashboard',  label: 'Dashboard',  icon: LayoutDashboard },
   { href: '/calendar',   label: 'Calendar',   icon: Calendar },
-  { href: '/reminders',  label: 'Reminders',  icon: Bell },
   { href: '/students',   label: 'Students',   icon: Users },
   { href: '/teachers',   label: 'Teachers',   icon: GraduationCap },
   { href: '/scheduling', label: 'Scheduling', icon: Clock },
+  { href: '/packages',   label: 'Packages',   icon: Tag },
   { href: '/invoices',   label: 'Invoices',   icon: FileText },
   { href: '/payslips',   label: 'Payslips',   icon: Wallet },
   { href: '/finance',    label: 'Finance',    icon: BarChart3 },
