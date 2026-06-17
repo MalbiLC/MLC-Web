@@ -117,38 +117,50 @@ function SlotFinderModal({
       .eq('status', 'scheduled')
       .not('room_id', 'is', null)
 
-    // Convert ISO timestamp to LOCAL day-of-week + minutes
-    const toLocalDow  = (iso: string) => new Date(iso).getDay()
-    const toLocalMins = (iso: string) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes() }
+    // Sessions stored as UTC. Availability slots use local day/time.
+    // Strategy: convert BOTH to UTC minutes for comparison.
+    // tzOffsetMin = minutes AHEAD of UTC (e.g. WIB UTC+7 = +420)
+    const tzOffsetMin = -new Date().getTimezoneOffset()
 
-    // Build debug string
-    let dbg = `Teacher sessions found: ${teacherSessions?.length ?? 0} (error: ${e1?.message ?? 'none'})\n`
-    for (const s of teacherSessions || []) {
-      const d = new Date(s.scheduled_at)
-      dbg += `  → ${s.scheduled_at} | local day=${d.getDay()} hour=${d.getHours()} min=${d.getHours()*60+d.getMinutes()} | room=${s.room_id}\n`
+    // Convert a UTC ISO timestamp to UTC day + UTC minutes
+    const toUTCDow  = (iso: string) => new Date(iso).getUTCDay()
+    const toUTCMins = (iso: string) => { const d = new Date(iso); return d.getUTCHours() * 60 + d.getUTCMinutes() }
+
+    // Convert local slot (day=1 Mon, start=09:00 local) to UTC equivalents
+    const localToUTC = (localDow: number, localMin: number) => {
+      let utcMin = localMin - tzOffsetMin
+      let utcDow = localDow
+      if (utcMin < 0)     { utcMin += 1440; utcDow = (utcDow + 6) % 7 }
+      if (utcMin >= 1440) { utcMin -= 1440; utcDow = (utcDow + 1) % 7 }
+      return { utcDow, utcMin }
     }
-    dbg += `\nStudent availability slots: ${studentSlots.length}\n`
-    for (const s of studentSlots) { dbg += `  → day=${s.day_of_week} ${s.slot_start}–${s.slot_end}\n` }
-    dbg += `\nTeacher availability slots: ${teacherSlots.length}\n`
-    for (const s of teacherSlots) { dbg += `  → day=${s.day_of_week} ${s.slot_start}–${s.slot_end}\n` }
+
+    // Build debug info
+    let dbg = `Teacher sessions found: ${teacherSessions?.length ?? 0} (error: ${e1?.message ?? 'none'})\n`
+    dbg += `Browser tzOffset: ${tzOffsetMin} min (UTC${tzOffsetMin>=0?'+':''}${tzOffsetMin/60})\n`
+    for (const s of teacherSessions || []) {
+      dbg += `  → ${s.scheduled_at} | UTC day=${toUTCDow(s.scheduled_at)} UTC min=${toUTCMins(s.scheduled_at)} | room=${s.room_id}\n`
+    }
+    dbg += `\nStudent avail: ${studentSlots.map((s:any) => `day=${s.day_of_week} ${s.slot_start}`).join(', ')}\n`
+    dbg += `Teacher avail: ${teacherSlots.map((s:any) => `day=${s.day_of_week} ${s.slot_start}`).join(', ')}\n`
     setDebugInfo(dbg)
 
-    // Teacher busy windows: day → [[startMin, endMin]]
+    // Teacher busy windows in UTC: utcDay → [[utcStart, utcEnd]]
     const teacherBusy: Record<number, Array<[number, number]>> = {}
     for (const sess of teacherSessions || []) {
-      const dow  = toLocalDow(sess.scheduled_at)
-      const sMin = toLocalMins(sess.scheduled_at)
+      const dow  = toUTCDow(sess.scheduled_at)
+      const sMin = toUTCMins(sess.scheduled_at)
       const eMin = sMin + (sess.duration_minutes || 60)
       if (!teacherBusy[dow]) teacherBusy[dow] = []
       teacherBusy[dow].push([sMin, eMin])
     }
 
-    // Room busy windows: roomId → day → [[startMin, endMin]]
+    // Room busy windows in UTC
     const roomBusy: Record<string, Record<number, Array<[number, number]>>> = {}
     for (const sess of allRoomSessions || []) {
       if (!sess.room_id) continue
-      const dow  = toLocalDow(sess.scheduled_at)
-      const sMin = toLocalMins(sess.scheduled_at)
+      const dow  = toUTCDow(sess.scheduled_at)
+      const sMin = toUTCMins(sess.scheduled_at)
       const eMin = sMin + (sess.duration_minutes || 60)
       if (!roomBusy[sess.room_id]) roomBusy[sess.room_id] = {}
       if (!roomBusy[sess.room_id][dow]) roomBusy[sess.room_id][dow] = []
@@ -156,18 +168,25 @@ function SlotFinderModal({
     }
     setRoomBookings(roomBusy)
 
-    // Filter slots where teacher is already busy
+    // Check if a local availability slot conflicts with teacher's UTC bookings
     const teacherConflicts = (slot: any): boolean => {
-      const booked = teacherBusy[slot.day_of_week] || []
-      const sMin   = timeToMin(slot.start)
-      const eMin   = timeToMin(slot.end)
-      return booked.some(([bs, be]) => sMin < be && eMin > bs)
+      const { utcDow, utcMin } = localToUTC(slot.day_of_week, timeToMin(slot.start))
+      const utcEnd = utcMin + meta.duration
+      const booked = teacherBusy[utcDow] || []
+      return booked.some(([bs, be]) => utcMin < be && utcEnd > bs)
     }
 
-    const rawSlots  = intersectSlots(studentSlots, teacherSlots, meta.duration)
-    const common    = rawSlots.filter(slot => !teacherConflicts(slot))
+    const rawSlots = intersectSlots(studentSlots, teacherSlots, meta.duration)
+    const common   = rawSlots.filter(slot => !teacherConflicts(slot))
 
-    setDebugInfo(prev => prev + `\nRaw intersection slots: ${rawSlots.length}\nAfter conflict filter: ${common.length}\nteacherBusy: ${JSON.stringify(teacherBusy)}`)
+    setDebugInfo(prev => prev +
+      `\nteacherBusy (UTC): ${JSON.stringify(teacherBusy)}\n` +
+      `Raw slots: ${rawSlots.length}, After filter: ${common.length}\n` +
+      rawSlots.slice(0,3).map((s:any) => {
+        const { utcDow, utcMin } = localToUTC(s.day_of_week, timeToMin(s.start))
+        return `  local day=${s.day_of_week} ${s.start} → UTC day=${utcDow} min=${utcMin} conflict=${teacherConflicts(s)}`
+      }).join('\n')
+    )
 
     setSlots(common)
 
@@ -203,25 +222,33 @@ function SlotFinderModal({
     setSaving(true); setError('')
     try {
       const seriesId = crypto.randomUUID()
-      const [hh, mm] = sessionTime.split(':').map(Number)
       const totalSessions = subjectSession.sessions_remaining
 
-      // Build all dates (weekly from startDate, same day of week as selectedSlot)
-      const dates: Date[] = []
-      const start = new Date(startDate + 'T00:00:00')
-      start.setHours(hh, mm, 0, 0)
-      let cur = new Date(start)
-      while (dates.length < totalSessions) {
-        dates.push(new Date(cur))
-        cur.setDate(cur.getDate() + 7)
+      // Build local ISO strings that preserve the intended local time
+      // Format: "2026-06-21T09:00:00" — no timezone suffix, interpreted as local by Supabase
+      // This avoids UTC conversion shifting the day
+      const toLocalISO = (dateStr: string, timeStr: string): string => {
+        return `${dateStr}T${timeStr}:00`
       }
 
-      const toInsert = dates.map((dt, idx) => ({
+      // Build weekly dates starting from startDate
+      const dates: string[] = []
+      const start = new Date(startDate + 'T00:00:00')
+      for (let i = 0; i < totalSessions; i++) {
+        const d = new Date(start)
+        d.setDate(d.getDate() + i * 7)
+        const yyyy = d.getFullYear()
+        const mm   = String(d.getMonth() + 1).padStart(2, '0')
+        const dd   = String(d.getDate()).padStart(2, '0')
+        dates.push(toLocalISO(`${yyyy}-${mm}-${dd}`, sessionTime))
+      }
+
+      const toInsert = dates.map((scheduledAt, idx) => ({
         class_type:       classType,
         teacher_id:       teacherId,
         room_id:          roomId || null,
         subject_id:       subjectSession.subject_id,
-        scheduled_at:     dt.toISOString(),
+        scheduled_at:     scheduledAt,
         duration_minutes: meta.duration,
         max_students:     meta.max,
         status:           'scheduled',
@@ -233,7 +260,6 @@ function SlotFinderModal({
       if (insErr) throw new Error(insErr.message)
       if (!created?.length) throw new Error('Insert returned no rows.')
 
-      // Link student to sessions
       const links = created.map(s => ({ session_id: s.id, student_id: student.id }))
       await sb.from('session_students').insert(links)
 
