@@ -9,6 +9,7 @@ import { Plus, X, MapPin, Monitor, Users, Trash2, Pencil,
          Search, Filter, ChevronDown, ChevronUp } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import NewSessionModal from '@/components/sessions/NewSessionModal'
+import EditSessionModal from '@/components/sessions/EditSessionModal'
 import { useAuth } from '@/hooks/useAuth'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -51,6 +52,10 @@ export default function SchedulingPage() {
   const [loading, setLoading]           = useState(true)
   const [expanded, setExpanded]         = useState<string | null>(null)
   const [showNewSession, setShowNewSession] = useState(false)
+  const [editingSession,  setEditingSession]  = useState<CalendarSession | null>(null)
+  const [deletingSession, setDeletingSession] = useState<CalendarSession | null>(null)
+  const [deleteLoading,   setDeleteLoading]   = useState(false)
+  const [deleteSeries,    setDeleteSeries]    = useState(false)
 
   // Room modal
   const [showRoomModal, setShowRoomModal] = useState(false)
@@ -121,6 +126,26 @@ export default function SchedulingPage() {
     setDeletingRoom(null); load()
   }
 
+  const deleteSession = async () => {
+    if (!deletingSession) return
+    setDeleteLoading(true)
+    try {
+      if (deleteSeries && deletingSession.series_id) {
+        // Delete all sessions in this series from this point forward
+        await sb.from('sessions')
+          .delete()
+          .eq('series_id', deletingSession.series_id)
+          .gte('series_index', deletingSession.series_index ?? 1)
+      } else {
+        await sb.from('sessions').delete().eq('id', deletingSession.id)
+      }
+      setDeletingSession(null)
+      setDeleteSeries(false)
+      load()
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
   const physicalRooms = rooms.filter(r => r.type === 'physical')
   const zoomRooms     = rooms.filter(r => r.type === 'zoom')
 
@@ -273,45 +298,64 @@ export default function SchedulingPage() {
                                     const c = CT_COLORS[s.class_type || 'private'] || CT_COLORS.private
                                     return (
                                       <div key={s.id}
-                                        className={cn('flex items-center gap-3 px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm',
+                                        className={cn('flex items-center gap-3 px-3 py-2.5 bg-white border border-gray-100 rounded-lg',
                                           s.status === 'cancelled' && 'opacity-40'
                                         )}>
-                                        <div className="w-1 h-6 rounded-full shrink-0" style={{ backgroundColor: c.border }}/>
+                                        <div className="w-1 h-7 rounded-full shrink-0" style={{ backgroundColor: c.border }}/>
+
+                                        {/* Date / time */}
                                         <div className="w-24 shrink-0">
                                           <p className="text-xs font-medium text-gray-800">
                                             {new Date(s.scheduled_at).toLocaleDateString('id-ID', { day:'numeric', month:'short' })}
                                           </p>
                                           <p className="text-xs text-gray-400">{formatTime(s.scheduled_at)}</p>
                                         </div>
+
+                                        {/* Teacher / room */}
                                         <div className="flex-1 min-w-0">
                                           <p className="text-xs text-gray-500 truncate">
                                             {s.teacher_name}
                                             {s.room_name && <> · {s.room_name}</>}
                                           </p>
+                                          {s.series_index && (
+                                            <p className="text-xs text-gray-300">Session {s.series_index}</p>
+                                          )}
                                         </div>
+
+                                        {/* Status badge */}
                                         <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
                                           s.status === 'completed'   ? 'bg-teal-50 text-teal-700' :
                                           s.status === 'cancelled'   ? 'bg-gray-100 text-gray-400' :
                                           s.status === 'rescheduled' ? 'bg-amber-50 text-amber-700' :
-                                          isPast                     ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-700'
+                                          isPast ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-700'
                                         )}>
                                           {s.status === 'scheduled' && isPast ? 'overdue' : s.status}
                                         </span>
-                                        {s.status === 'scheduled' && (
-                                          <div className="flex gap-1 shrink-0">
-                                            <button
+
+                                        {/* Actions */}
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          {/* Quick complete */}
+                                          {s.status === 'scheduled' && (
+                                            <button title="Mark completed"
                                               onClick={async () => { await sb.from('sessions').update({ status: 'completed' }).eq('id', s.id); load() }}
-                                              className="text-xs px-2 py-1 rounded text-white"
+                                              className="w-7 h-7 flex items-center justify-center rounded-lg text-white text-xs font-bold hover:opacity-90 transition-opacity"
                                               style={{ backgroundColor: 'var(--mlc-teal)' }}>
                                               ✓
                                             </button>
-                                            <button
-                                              onClick={async () => { await sb.from('sessions').update({ status: 'cancelled' }).eq('id', s.id); load() }}
-                                              className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500 hover:bg-gray-200">
-                                              ✕
-                                            </button>
-                                          </div>
-                                        )}
+                                          )}
+                                          {/* Edit */}
+                                          <button title="Edit session"
+                                            onClick={() => setEditingSession(s)}
+                                            className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
+                                            <Pencil size={12}/>
+                                          </button>
+                                          {/* Delete */}
+                                          <button title="Delete session"
+                                            onClick={() => { setDeletingSession(s); setDeleteSeries(false) }}
+                                            className="w-7 h-7 flex items-center justify-center rounded-lg border border-red-100 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                                            <Trash2 size={12}/>
+                                          </button>
+                                        </div>
                                       </div>
                                     )
                                   })}
@@ -412,7 +456,86 @@ export default function SchedulingPage() {
       )}
 
       {showNewSession && <NewSessionModal onClose={()=>setShowNewSession(false)} onSuccess={()=>{setShowNewSession(false);load()}}/> }
-      {deletingRoom   && <ConfirmDialog title="Delete room" message={`Delete "${deletingRoom.name}"?`} onConfirm={deleteRoom} onCancel={()=>setDeletingRoom(null)}/> }
+
+      {editingSession && (
+        <EditSessionModal
+          session={editingSession}
+          onClose={() => setEditingSession(null)}
+          onSuccess={() => { setEditingSession(null); load() }}
+        />
+      )}
+
+      {/* Delete session confirm — with optional series delete */}
+      {deletingSession && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                <Trash2 size={18} className="text-red-500"/>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Delete session?</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  {new Date(deletingSession.scheduled_at).toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long' })}
+                  {' · '}{formatTime(deletingSession.scheduled_at)}
+                  {deletingSession.class_name && ` · ${deletingSession.class_name}`}
+                </p>
+              </div>
+            </div>
+
+            {/* Series option — only show if session is part of a series */}
+            {deletingSession.series_id && (
+              <div className="mb-5 space-y-2">
+                <label className={cn(
+                  'flex items-start gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-colors',
+                  !deleteSeries ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:border-gray-300'
+                )} onClick={() => setDeleteSeries(false)}>
+                  <div className={cn('w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center',
+                    !deleteSeries ? 'border-gray-900 bg-gray-900' : 'border-gray-300'
+                  )}>
+                    {!deleteSeries && <div className="w-1.5 h-1.5 rounded-full bg-white"/>}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">This session only</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Other sessions in the series stay</p>
+                  </div>
+                </label>
+                <label className={cn(
+                  'flex items-start gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-colors',
+                  deleteSeries ? 'border-red-300 bg-red-50' : 'border-gray-200 hover:border-gray-300'
+                )} onClick={() => setDeleteSeries(true)}>
+                  <div className={cn('w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center',
+                    deleteSeries ? 'border-red-500 bg-red-500' : 'border-gray-300'
+                  )}>
+                    {deleteSeries && <div className="w-1.5 h-1.5 rounded-full bg-white"/>}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">
+                      This &amp; all future sessions in series
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Session {deletingSession.series_index} onwards will be deleted
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => { setDeletingSession(null); setDeleteSeries(false) }}
+                className="btn-secondary flex-1 justify-center" disabled={deleteLoading}>
+                Cancel
+              </button>
+              <button onClick={deleteSession} disabled={deleteLoading}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
+                {deleteLoading ? 'Deleting…' : deleteSeries ? 'Delete sessions' : 'Delete session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingRoom && <ConfirmDialog title="Delete room" message={`Delete "${deletingRoom.name}"?`} onConfirm={deleteRoom} onCancel={()=>setDeletingRoom(null)}/> }
     </div>
   )
 }
