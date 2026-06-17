@@ -13,9 +13,10 @@ export async function getStudents(type: 'potential' | 'current'): Promise<Studen
       trial_teacher:teachers!trial_teacher_id ( id, full_name ),
       availability:student_availability ( id, student_id, day_of_week, slot_start, slot_end ),
       subject_sessions:student_subject_sessions (
-        id, student_id, subject_id, teacher_id, sessions_remaining, created_at,
+        id, student_id, subject_id, teacher_id, package_id, sessions_remaining, location, created_at,
         subject:subjects ( id, name ),
-        teacher:teachers ( id, full_name )
+        teacher:teachers ( id, full_name ),
+        package:packages ( id, package_name, class_type, sessions, price, final_price, location )
       )
     `)
     .eq('student_type', type)
@@ -88,16 +89,17 @@ export async function createRecurringStudent(data: {
   const { subjects, availability, ...studentData } = data
   const { data: student, error } = await sb
     .from('students')
-    .insert({ ...studentData, student_type: 'current', status: 'ongoing' })
+    .insert({ ...studentData, school: (data as any).school || null, student_type: 'current', status: 'ongoing' })
     .select('id').single()
   if (error) throw error
   if (subjects.length > 0) {
     const { error: subErr } = await sb.from('student_subject_sessions').insert(
       subjects.map(s => ({
-        student_id: student.id,
-        subject_id: s.subject_id,
+        student_id:         student.id,
+        subject_id:         s.subject_id,
+        package_id:         (s as any).package_id || null,
         sessions_remaining: s.sessions,
-        location: s.location || 'in_person',
+        location:           s.location || 'in_person',
       }))
     )
     if (subErr) throw subErr
@@ -119,7 +121,7 @@ export async function updateRecurringStudent(id: string, data: {
 }) {
   const sb = createClient()
   const { subjects, availability, ...studentData } = data
-  const { error } = await sb.from('students').update(studentData).eq('id', id)
+  const { error } = await sb.from('students').update({ ...studentData, school: (data as any).school || null }).eq('id', id)
   if (error) throw error
 
   // Delete existing subject sessions and re-insert
@@ -127,10 +129,11 @@ export async function updateRecurringStudent(id: string, data: {
   if (subjects.length > 0) {
     const { error: subErr } = await sb.from('student_subject_sessions').insert(
       subjects.map(s => ({
-        student_id: id,
-        subject_id: s.subject_id,
+        student_id:         id,
+        subject_id:         s.subject_id,
+        package_id:         (s as any).package_id || null,
         sessions_remaining: s.sessions,
-        location: s.location || 'in_person',
+        location:           s.location || 'in_person',
       }))
     )
     if (subErr) throw subErr
@@ -165,10 +168,11 @@ export async function enrollStudent(id: string, data: {
   if (subjects.length > 0) {
     const { error: subErr } = await sb.from('student_subject_sessions').insert(
       subjects.map(s => ({
-        student_id: id,
-        subject_id: s.subject_id,
+        student_id:         id,
+        subject_id:         s.subject_id,
+        package_id:         (s as any).package_id || null,
         sessions_remaining: s.sessions,
-        location: s.location || 'in_person',
+        location:           s.location || 'in_person',
       }))
     )
     if (subErr) throw subErr

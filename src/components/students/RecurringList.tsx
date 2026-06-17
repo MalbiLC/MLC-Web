@@ -94,6 +94,10 @@ export default function RecurringList({ students, onRefresh }: Props) {
                       <p className="text-gray-700">{s.date_of_birth ? formatDate(s.date_of_birth) : '—'}</p>
                     </div>
                     <div>
+                      <p className="text-xs text-gray-400 mb-0.5">School</p>
+                      <p className="text-gray-700">{s.school || '—'}</p>
+                    </div>
+                    <div>
                       <p className="text-xs text-gray-400 mb-0.5">Package</p>
                       <p className="text-gray-700">{s.package ? packageLabel[s.package] : '—'}</p>
                     </div>
@@ -114,7 +118,7 @@ export default function RecurringList({ students, onRefresh }: Props) {
                           <div key={ss.id} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-gray-100 rounded-lg">
                             <div className="flex-1">
                               <p className="text-sm font-medium text-gray-800">{ss.subject?.name}</p>
-                              <p className="text-xs text-gray-400 mt-0.5">Teacher assigned via scheduling</p>
+                              {(ss as any).package_name && <p className="text-xs text-gray-400 mt-0.5">{(ss as any).package_name}</p>}
                             </div>
                             <div className="text-right">
                               <p className={cn(
