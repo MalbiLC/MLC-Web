@@ -96,11 +96,58 @@ function SlotFinderModal({
   const findSlots = async (tId: string) => {
     if (!tId) return
     setFinding(true); setSlots([]); setAltSlots([]); setSelectedSlot(null)
+
     const teacher = allTeachers.find(t => t.id === tId)
     const teacherSlots: any[] = teacher?.teacher_availability || []
 
+    // Fetch existing scheduled sessions for this teacher (to check conflicts)
+    const { data: existingSessions } = await sb
+      .from('sessions')
+      .select('scheduled_at, duration_minutes, room_id')
+      .eq('teacher_id', tId)
+      .eq('status', 'scheduled')
+
+    // Build a set of booked windows per day_of_week for the teacher
+    // Format: { day_of_week: [[startMin, endMin], ...] }
+    const bookedByDay: Record<number, Array<[number, number]>> = {}
+    for (const sess of existingSessions || []) {
+      const d    = new Date(sess.scheduled_at)
+      const dow  = d.getDay()
+      const sMin = d.getHours() * 60 + d.getMinutes()
+      const eMin = sMin + (sess.duration_minutes || 60)
+      if (!bookedByDay[dow]) bookedByDay[dow] = []
+      bookedByDay[dow].push([sMin, eMin])
+    }
+
+    // Also collect booked windows per room per day
+    const roomBookedByDay: Record<string, Record<number, Array<[number, number]>>> = {}
+    for (const sess of existingSessions || []) {
+      if (!sess.room_id) continue
+      const d    = new Date(sess.scheduled_at)
+      const dow  = d.getDay()
+      const sMin = d.getHours() * 60 + d.getMinutes()
+      const eMin = sMin + (sess.duration_minutes || 60)
+      if (!roomBookedByDay[sess.room_id]) roomBookedByDay[sess.room_id] = {}
+      if (!roomBookedByDay[sess.room_id][dow]) roomBookedByDay[sess.room_id][dow] = []
+      roomBookedByDay[sess.room_id][dow].push([sMin, eMin])
+    }
+
+    // Filter out slots that conflict with existing teacher bookings
+    const slotConflicts = (slot: any): boolean => {
+      const dow     = slot.day_of_week
+      const sMin    = timeToMin(slot.start)
+      const eMin    = timeToMin(slot.end)
+      const booked  = bookedByDay[dow] || []
+      return booked.some(([bs, be]) => sMin < be && eMin > bs)
+    }
+
     const common = intersectSlots(studentSlots, teacherSlots, meta.duration)
+      .filter(slot => !slotConflicts(slot))
+
     setSlots(common)
+
+    // Store room booking info for room filtering later
+    ;(window as any).__roomBookedByDay = roomBookedByDay
 
     // No overlap — suggest alternatives per teacher
     if (common.length === 0) {
@@ -321,15 +368,30 @@ function SlotFinderModal({
                       style={!roomId ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
                       No room
                     </button>
-                    {filteredRooms.map(r => (
-                      <button key={r.id} type="button" onClick={() => setRoomId(r.id)}
-                        className={cn('px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors',
-                          roomId === r.id ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                        )}
-                        style={roomId === r.id ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
-                        {r.name}
-                      </button>
-                    ))}
+                    {filteredRooms.map(r => {
+                      const roomBookedByDay = (window as any).__roomBookedByDay as Record<string, Record<number, Array<[number, number]>>> | undefined
+                      const dow      = selectedSlot?.day_of_week ?? -1
+                      const slotMin  = selectedSlot ? timeToMin(selectedSlot.start) : -1
+                      const slotEnd  = selectedSlot ? timeToMin(selectedSlot.end)   : -1
+                      const isBooked = !!roomBookedByDay?.[r.id]?.[dow]?.some(
+                        ([bs, be]: [number, number]) => slotMin < be && slotEnd > bs
+                      )
+                      return (
+                        <button key={r.id} type="button"
+                          onClick={() => !isBooked && setRoomId(r.id)}
+                          disabled={isBooked}
+                          title={isBooked ? `${r.name} is already booked at this time` : ''}
+                          className={cn('px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors',
+                            isBooked    ? 'opacity-40 cursor-not-allowed line-through bg-gray-100 text-gray-400 border-gray-200' :
+                            roomId===r.id ? 'text-white border-transparent' :
+                            'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                          )}
+                          style={!isBooked && roomId===r.id ? { backgroundColor:'var(--mlc-teal)' } : {}}>
+                          {r.name}
+                          {isBooked && <span className="ml-1 text-xs font-normal">(booked)</span>}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
               </div>
