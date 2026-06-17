@@ -40,13 +40,13 @@ export default function RecurringModal({ student, onClose, onSuccess }: Props) {
       ? student.subject_sessions.map((ss: any) => ({
           subject_id:   ss.subject_id,
           subject_name: ss.subject?.name || '',
-          package_id:   (ss as any).package_id || '',
-          package_name: ss.subject?.name || '',
+          package_id:    (ss as any).package_id || '',
+          package_label: ss.subject?.name || '',
           sessions:     ss.sessions_remaining,
           location:     ss.location || 'in_person',
           price:        0,
         }))
-      : [{ subject_id: '', subject_name: '', package_id: '', package_name: '', sessions: 0, location: 'in_person', price: 0 }]
+      : [{ subject_id: '', subject_name: '', package_id: '', package_label: '', sessions: 0, location: 'in_person', price: 0 }]
   )
 
   const [availability, setAvailability] = useState<AvailabilitySlot[]>(student?.availability || [])
@@ -131,6 +131,7 @@ export default function RecurringModal({ student, onClose, onSuccess }: Props) {
 
           {/* Subject + Package picker */}
           <SubjectPackagePicker
+            packageType={form.package}
             rows={subjectRows}
             onChange={setSubjectRows}
             label="Subjects & packages"
