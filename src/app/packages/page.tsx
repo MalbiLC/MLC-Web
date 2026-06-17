@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, formatIDR } from '@/lib/utils'
-import { Plus, X, Pencil, Trash2, Tag, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -27,40 +27,41 @@ const SUBJECT_COLORS: Record<string, { bg: string; text: string; border: string 
 interface Package {
   id: string; subject: string; level: string; package_name: string | null
   class_type: string; sessions: number; price: number; discount_pct: number
-  final_price: number; location: string; is_active: boolean; notes: string | null
+  final_price: number; location: string; notes: string | null
 }
 
+// ── Package modal ────────────────────────────────────────────────
 function PackageModal({ pkg, onClose, onSuccess }: {
   pkg?: Package; onClose: () => void; onSuccess: () => void
 }) {
-  const sb = createClient()
+  const sb     = createClient()
   const isEdit = !!pkg
+
   const [form, setForm] = useState({
     subject:      pkg?.subject      || 'Math',
     level:        pkg?.level        || '',
     package_name: pkg?.package_name || '',
     class_type:   pkg?.class_type   || 'private',
-    sessions:     pkg?.sessions?.toString() || '',
-    price:        pkg?.price?.toString()    || '',
+    sessions:     pkg?.sessions?.toString()     || '',
+    price:        pkg?.price?.toString()        || '',
     discount_pct: pkg?.discount_pct?.toString() || '0',
     location:     pkg?.location     || 'in_person',
     notes:        pkg?.notes        || '',
-    is_active:    pkg?.is_active ?? true,
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState('')
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
 
-  const price      = parseFloat(form.price) || 0
+  const price      = parseFloat(form.price)   || 0
   const discount   = parseFloat(form.discount_pct) || 0
   const finalPrice = Math.round(price * (1 - discount / 100))
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.level.trim())   { setError('Level/grade is required.'); return }
-    if (!form.price)          { setError('Price is required.'); return }
-    if (!form.sessions)       { setError('Number of sessions is required.'); return }
+    if (!form.level.trim()) { setError('Level/grade is required.'); return }
+    if (!form.price)        { setError('Price is required.'); return }
+    if (!form.sessions)     { setError('Number of sessions is required.'); return }
     setSaving(true); setError('')
     try {
       const payload = {
@@ -73,15 +74,11 @@ function PackageModal({ pkg, onClose, onSuccess }: {
         discount_pct: parseFloat(form.discount_pct) || 0,
         location:     form.location,
         notes:        form.notes || null,
-        is_active:    form.is_active,
       }
-      if (isEdit && pkg) {
-        const { error: e } = await sb.from('packages').update(payload).eq('id', pkg.id)
-        if (e) throw new Error(e.message)
-      } else {
-        const { error: e } = await sb.from('packages').insert(payload)
-        if (e) throw new Error(e.message)
-      }
+      const { error: e } = isEdit && pkg
+        ? await sb.from('packages').update(payload).eq('id', pkg.id)
+        : await sb.from('packages').insert(payload)
+      if (e) throw new Error(e.message)
       onSuccess()
     } catch (e: any) { setError(e.message) }
     finally { setSaving(false) }
@@ -115,7 +112,7 @@ function PackageModal({ pkg, onClose, onSuccess }: {
             </div>
           </div>
 
-          {/* Level + Package name */}
+          {/* Level + Name */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Level / Grade <span className="text-red-500">*</span></label>
@@ -124,7 +121,7 @@ function PackageModal({ pkg, onClose, onSuccess }: {
             </div>
             <div>
               <label className="label">Package name <span className="text-gray-400 text-xs font-normal">(optional)</span></label>
-              <input className="input" placeholder="e.g. Regular, Lite, Intensive"
+              <input className="input" placeholder="e.g. Regular, Lite"
                 value={form.package_name} onChange={e => set('package_name', e.target.value)}/>
             </div>
           </div>
@@ -134,10 +131,8 @@ function PackageModal({ pkg, onClose, onSuccess }: {
             <label className="label">Class type <span className="text-red-500">*</span></label>
             <div className="grid grid-cols-2 gap-2">
               {CLASS_TYPES.map(ct => (
-                <button key={ct.value} type="button" onClick={() => {
-                  set('class_type', ct.value)
-                  set('location', ct.value === 'private_online' ? 'online' : 'in_person')
-                }}
+                <button key={ct.value} type="button"
+                  onClick={() => { set('class_type', ct.value); set('location', ct.value === 'private_online' ? 'online' : 'in_person') }}
                   className={cn('flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-colors',
                     form.class_type === ct.value ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
                   )}
@@ -149,7 +144,7 @@ function PackageModal({ pkg, onClose, onSuccess }: {
             </div>
           </div>
 
-          {/* Location (auto-set but editable) */}
+          {/* Location */}
           <div>
             <label className="label">Location</label>
             <div className="flex gap-2">
@@ -188,12 +183,9 @@ function PackageModal({ pkg, onClose, onSuccess }: {
           {price > 0 && (
             <div className="px-4 py-3 bg-gray-50 rounded-xl flex items-center justify-between">
               <div className="text-sm text-gray-500">
-                {discount > 0 ? (
-                  <>
-                    <span className="line-through text-gray-400 mr-2">{formatIDR(price)}</span>
-                    <span className="text-green-600 font-medium">−{discount}%</span>
-                  </>
-                ) : 'Final price'}
+                {discount > 0
+                  ? <><span className="line-through text-gray-400 mr-2">{formatIDR(price)}</span><span className="text-green-600 font-medium">−{discount}%</span></>
+                  : 'Final price'}
               </div>
               <p className="text-lg font-bold text-gray-900">{formatIDR(finalPrice)}</p>
             </div>
@@ -202,24 +194,8 @@ function PackageModal({ pkg, onClose, onSuccess }: {
           {/* Notes */}
           <div>
             <label className="label">Notes <span className="text-gray-400 text-xs font-normal">(optional)</span></label>
-            <textarea className="input resize-none" rows={2}
-              placeholder="Any additional details…"
+            <textarea className="input resize-none" rows={2} placeholder="Any additional details…"
               value={form.notes} onChange={e => set('notes', e.target.value)}/>
-          </div>
-
-          {/* Active toggle */}
-          <div className="flex items-center gap-3">
-            <button type="button"
-              onClick={() => set('is_active', !form.is_active)}
-              className={cn('w-10 h-6 rounded-full transition-colors relative',
-                form.is_active ? '' : 'bg-gray-200'
-              )}
-              style={form.is_active ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
-              <div className={cn('w-4 h-4 bg-white rounded-full absolute top-1 transition-transform',
-                form.is_active ? 'translate-x-5' : 'translate-x-1'
-              )}/>
-            </button>
-            <span className="text-sm text-gray-600">{form.is_active ? 'Active' : 'Inactive (hidden from students)'}</span>
           </div>
 
           {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
@@ -236,21 +212,33 @@ function PackageModal({ pkg, onClose, onSuccess }: {
   )
 }
 
+// ── Main page ────────────────────────────────────────────────────
 export default function PackagesPage() {
   useAuth()
   const sb = createClient()
-  const [packages,  setPackages]  = useState<Package[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [modal,     setModal]     = useState<'add' | Package | null>(null)
-  const [deleting,  setDeleting]  = useState<Package | null>(null)
+  const [packages, setPackages]   = useState<Package[]>([])
+  const [loading,  setLoading]    = useState(true)
+  const [modal,    setModal]      = useState<'add' | Package | null>(null)
+  const [deleting, setDeleting]   = useState<Package | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
-  const [expanded,  setExpanded]  = useState<string | null>(null)
-  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('active')
+  const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await sb.from('packages').select('*').order('subject').order('level').order('sessions')
+    const { data, error } = await sb
+      .from('packages')
+      .select('*')
+      .order('subject')
+      .order('level')
+      .order('sessions')
+    if (error) console.error('[packages]', error)
     setPackages(data || [])
+    // Auto-expand all level groups on first load
+    if (data && data.length > 0) {
+      const keys = new Set<string>()
+      data.forEach(p => keys.add(`${p.subject}|${p.level}`))
+      setExpandedLevels(keys)
+    }
     setLoading(false)
   }, [])
 
@@ -263,160 +251,126 @@ export default function PackagesPage() {
     setDeleteLoading(false); setDeleting(null); load()
   }
 
-  // Group by subject, then by level within each subject
-  const grouped = useMemo(() => {
-    const filtered = packages.filter(p =>
-      filterActive === 'all' ? true :
-      filterActive === 'active' ? p.is_active : !p.is_active
-    )
+  const toggleLevel = (key: string) => {
+    setExpandedLevels(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
 
+  // Group: subject → level → packages[]
+  // Level sort: try numeric prefix (Grade 1, Grade 2…), else alphabetical
+  const grouped = useMemo(() => {
     const bySubject: Record<string, Record<string, Package[]>> = {}
-    for (const p of filtered) {
-      if (!bySubject[p.subject]) bySubject[p.subject] = {}
+    for (const p of packages) {
+      if (!bySubject[p.subject])        bySubject[p.subject] = {}
       if (!bySubject[p.subject][p.level]) bySubject[p.subject][p.level] = []
       bySubject[p.subject][p.level].push(p)
     }
     return bySubject
-  }, [packages, filterActive])
+  }, [packages])
 
-  const totalActive   = packages.filter(p => p.is_active).length
-  const totalInactive = packages.filter(p => !p.is_active).length
+  const sortLevels = (levels: string[]) =>
+    [...levels].sort((a, b) => {
+      const numA = parseInt(a.replace(/\D/g, '')) || 0
+      const numB = parseInt(b.replace(/\D/g, '')) || 0
+      if (numA && numB) return numA - numB
+      return a.localeCompare(b)
+    })
 
   const ctLabel: Record<string, string> = {
-    group: 'Group', semi_private: 'Semi-Private', private: 'Private', private_online: 'Online',
+    group: 'Group', semi_private: 'Semi-Private',
+    private: 'Private', private_online: 'Online',
   }
 
   return (
     <div>
       <div className="page-header">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">Packages</h1>
-        </div>
+        <h1 className="text-2xl font-semibold">Packages</h1>
         <button onClick={() => setModal('add')} className="btn-primary">
           <Plus size={15}/> New package
         </button>
       </div>
 
-      <div className="page-content space-y-5">
-        {/* Stats */}
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-          <div className="stat-card">
-            <div className="flex items-center gap-2 text-xs text-gray-500 mb-2"><Tag size={13}/> Total packages</div>
-            <p className="text-2xl font-semibold">{packages.length}</p>
-            <p className="text-xs text-gray-400 mt-0.5">Across all subjects</p>
-          </div>
-          {SUBJECTS.map(s => {
-            const c = SUBJECT_COLORS[s]
-            const count = packages.filter(p => p.subject === s && p.is_active).length
-            return (
-              <div key={s} className="stat-card">
-                <div className="flex items-center gap-2 text-xs mb-2" style={{ color: c.text }}>
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.border }}/> {s}
-                </div>
-                <p className="text-2xl font-semibold">{count}</p>
-                <p className="text-xs text-gray-400 mt-0.5">Active packages</p>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Filter tabs */}
-        <div className="flex gap-0 border-b border-gray-100">
-          {([
-            { key: 'active',   label: 'Active',   count: totalActive   },
-            { key: 'inactive', label: 'Inactive', count: totalInactive },
-            { key: 'all',      label: 'All',      count: packages.length },
-          ] as const).map(({ key, label, count }) => (
-            <button key={key} onClick={() => setFilterActive(key)}
-              className={cn('flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors',
-                filterActive === key ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'
-              )}>
-              {label}
-              <span className={cn('px-1.5 py-0.5 rounded-full text-xs',
-                filterActive === key ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'
-              )}>{count}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Packages grouped by subject → level */}
-        {loading ? <p className="text-sm text-gray-400 py-4">Loading…</p>
-        : Object.keys(grouped).length === 0 ? (
-          <div className="card text-center py-16 text-gray-400 text-sm">
+      <div className="page-content">
+        {loading ? (
+          <p className="text-sm text-gray-400 py-8">Loading…</p>
+        ) : packages.length === 0 ? (
+          <div className="card text-center py-20 text-gray-400 text-sm">
             No packages yet. Click &ldquo;New package&rdquo; to create one.
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-8">
             {SUBJECTS.filter(s => grouped[s]).map(subject => {
-              const c = SUBJECT_COLORS[subject]
-              const subjectPkgs = grouped[subject]
-              const levels = Object.keys(subjectPkgs).sort()
-              const isSubjectOpen = expanded === subject || expanded?.startsWith(subject + '|')
+              const c      = SUBJECT_COLORS[subject]
+              const levels = sortLevels(Object.keys(grouped[subject]))
+              const total  = Object.values(grouped[subject]).flat().length
 
               return (
                 <div key={subject}>
-                  {/* Subject header */}
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: c.border }}/>
-                      <h2 className="text-base font-semibold text-gray-900">{subject}</h2>
-                    </div>
+                  {/* Subject divider */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.border }}/>
+                    <h2 className="text-lg font-bold text-gray-900">{subject}</h2>
+                    <span className="text-xs text-gray-400">{total} package{total !== 1 ? 's' : ''}</span>
                     <div className="flex-1 h-px bg-gray-100"/>
-                    <span className="text-xs text-gray-400">
-                      {Object.values(subjectPkgs).flat().length} package{Object.values(subjectPkgs).flat().length !== 1 ? 's' : ''}
-                    </span>
                   </div>
 
-                  {/* Levels within subject */}
+                  {/* Level groups */}
                   <div className="space-y-3">
                     {levels.map(level => {
-                      const levelKey = `${subject}|${level}`
-                      const pkgs     = subjectPkgs[level]
-                      const isOpen   = expanded === levelKey
+                      const key  = `${subject}|${level}`
+                      const pkgs = grouped[subject][level]
+                      const open = expandedLevels.has(key)
 
                       return (
                         <div key={level} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                          {/* Level header row */}
-                          <button type="button" onClick={() => setExpanded(isOpen ? null : levelKey)}
+                          {/* Level header */}
+                          <button type="button" onClick={() => toggleLevel(key)}
                             className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-gray-50/50 transition-colors">
-                            <div className="w-2 h-6 rounded-full shrink-0" style={{ backgroundColor: c.bg, border: `1px solid ${c.border}` }}/>
+                            <div className="w-1.5 h-8 rounded-full shrink-0" style={{ backgroundColor: c.border, opacity: 0.4 }}/>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-semibold text-gray-800">{level}</p>
                               <p className="text-xs text-gray-400 mt-0.5">
-                                {pkgs.length} package{pkgs.length !== 1 ? 's' : ''} · {subject}
+                                {pkgs.length} package{pkgs.length !== 1 ? 's' : ''}
+                                {' · '}
+                                {[...new Set(pkgs.map(p => ctLabel[p.class_type] || p.class_type))].join(' · ')}
                               </p>
                             </div>
                             {/* Price range */}
-                            <div className="hidden sm:block text-right shrink-0">
-                              <p className="text-xs text-gray-400">
-                                {formatIDR(Math.min(...pkgs.map(p => p.final_price)))}
-                                {pkgs.length > 1 && ` – ${formatIDR(Math.max(...pkgs.map(p => p.final_price)))}`}
-                              </p>
+                            <div className="hidden sm:block text-right shrink-0 text-xs text-gray-400">
+                              {pkgs.length === 1
+                                ? formatIDR(pkgs[0].final_price)
+                                : `${formatIDR(Math.min(...pkgs.map(p => p.final_price)))} – ${formatIDR(Math.max(...pkgs.map(p => p.final_price)))}`
+                              }
                             </div>
-                            {isOpen ? <ChevronUp size={15} className="text-gray-400 shrink-0"/> : <ChevronDown size={15} className="text-gray-400 shrink-0"/>}
+                            {open
+                              ? <ChevronUp size={15} className="text-gray-400 shrink-0"/>
+                              : <ChevronDown size={15} className="text-gray-400 shrink-0"/>
+                            }
                           </button>
 
-                          {/* Package cards within level */}
-                          {isOpen && (
+                          {/* Package cards */}
+                          {open && (
                             <div className="border-t border-gray-50 px-5 py-4 bg-gray-50/30">
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                 {pkgs.map(p => (
-                                  <div key={p.id}
-                                    className={cn('bg-white border rounded-xl p-4 flex flex-col gap-2', p.is_active ? 'border-gray-100' : 'border-dashed border-gray-200 opacity-60')}>
-                                    {/* Top row */}
+                                  <div key={p.id} className="bg-white border border-gray-100 rounded-xl p-4 flex flex-col gap-3">
+                                    {/* Header */}
                                     <div className="flex items-start justify-between gap-2">
-                                      <div className="min-w-0">
+                                      <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="text-xs font-medium px-2 py-0.5 rounded-full"
+                                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
                                             style={{ backgroundColor: c.bg, color: c.text }}>
                                             {ctLabel[p.class_type] || p.class_type}
                                           </span>
-                                          {!p.is_active && (
-                                            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Inactive</span>
-                                          )}
+                                          <span className="text-xs text-gray-400">
+                                            {p.location === 'online' ? '🖥 Online' : '📍 In person'}
+                                          </span>
                                         </div>
                                         {p.package_name && (
-                                          <p className="text-sm font-semibold text-gray-800 mt-1">{p.package_name}</p>
+                                          <p className="text-sm font-semibold text-gray-800 mt-1.5">{p.package_name}</p>
                                         )}
                                       </div>
                                       <div className="flex gap-1 shrink-0">
@@ -432,25 +386,26 @@ export default function PackagesPage() {
                                     </div>
 
                                     {/* Details */}
-                                    <div className="space-y-1">
+                                    <div className="space-y-1.5">
                                       <div className="flex items-center justify-between text-sm">
                                         <span className="text-gray-500">{p.sessions} sessions</span>
-                                        <span className="text-xs text-gray-400">{p.location === 'online' ? '🖥 Online' : '📍 In person'}</span>
                                       </div>
-                                      <div className="flex items-center justify-between">
+                                      <div className="flex items-end justify-between">
                                         <div>
                                           {p.discount_pct > 0 && (
-                                            <span className="text-xs text-gray-400 line-through mr-1">{formatIDR(p.price)}</span>
+                                            <p className="text-xs text-gray-400 line-through">{formatIDR(p.price)}</p>
                                           )}
-                                          <span className="text-base font-bold text-gray-900">{formatIDR(p.final_price)}</span>
+                                          <p className="text-base font-bold text-gray-900">{formatIDR(p.final_price)}</p>
                                         </div>
                                         {p.discount_pct > 0 && (
-                                          <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                                          <span className="text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
                                             −{p.discount_pct}%
                                           </span>
                                         )}
                                       </div>
-                                      {p.notes && <p className="text-xs text-gray-400 italic">{p.notes}</p>}
+                                      {p.notes && (
+                                        <p className="text-xs text-gray-400 italic border-t border-gray-50 pt-1.5">{p.notes}</p>
+                                      )}
                                     </div>
                                   </div>
                                 ))}
@@ -468,7 +423,6 @@ export default function PackagesPage() {
         )}
       </div>
 
-      {/* Modals */}
       {modal === 'add' && (
         <PackageModal onClose={() => setModal(null)} onSuccess={() => { setModal(null); load() }}/>
       )}
