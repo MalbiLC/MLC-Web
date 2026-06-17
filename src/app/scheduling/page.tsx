@@ -83,6 +83,7 @@ function SlotFinderModal({
   const [sessionTime,setSessionTime]= useState('')
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState('')
+  const [roomBookings, setRoomBookings] = useState<Record<string, Record<number, Array<[number, number]>>>>({}) 
 
   const eligibleTeachers = useMemo(() =>
     allTeachers.filter(t =>
@@ -96,60 +97,64 @@ function SlotFinderModal({
   const findSlots = async (tId: string) => {
     if (!tId) return
     setFinding(true); setSlots([]); setAltSlots([]); setSelectedSlot(null)
+    setRoomBookings({})
 
     const teacher = allTeachers.find(t => t.id === tId)
     const teacherSlots: any[] = teacher?.teacher_availability || []
 
-    // Fetch existing scheduled sessions for this teacher (to check conflicts)
-    const { data: existingSessions } = await sb
+    // Query 1: this teacher's scheduled sessions
+    const { data: teacherSessions } = await sb
       .from('sessions')
       .select('scheduled_at, duration_minutes, room_id')
       .eq('teacher_id', tId)
       .eq('status', 'scheduled')
 
-    // Build a set of booked windows per day_of_week for the teacher
-    // Format: { day_of_week: [[startMin, endMin], ...] }
-    const bookedByDay: Record<number, Array<[number, number]>> = {}
-    for (const sess of existingSessions || []) {
-      const d    = new Date(sess.scheduled_at)
-      const dow  = d.getDay()
+    // Query 2: ALL room bookings (any teacher, any student)
+    const { data: allRoomSessions } = await sb
+      .from('sessions')
+      .select('scheduled_at, duration_minutes, room_id')
+      .eq('status', 'scheduled')
+      .not('room_id', 'is', null)
+
+    // Teacher busy windows: day → [[startMin, endMin]]
+    const teacherBusy: Record<number, Array<[number, number]>> = {}
+    for (const sess of teacherSessions || []) {
+      const d = new Date(sess.scheduled_at)
+      const dow = d.getDay()
       const sMin = d.getHours() * 60 + d.getMinutes()
       const eMin = sMin + (sess.duration_minutes || 60)
-      if (!bookedByDay[dow]) bookedByDay[dow] = []
-      bookedByDay[dow].push([sMin, eMin])
+      if (!teacherBusy[dow]) teacherBusy[dow] = []
+      teacherBusy[dow].push([sMin, eMin])
     }
 
-    // Also collect booked windows per room per day
-    const roomBookedByDay: Record<string, Record<number, Array<[number, number]>>> = {}
-    for (const sess of existingSessions || []) {
+    // Room busy windows: roomId → day → [[startMin, endMin]]
+    const roomBusy: Record<string, Record<number, Array<[number, number]>>> = {}
+    for (const sess of allRoomSessions || []) {
       if (!sess.room_id) continue
-      const d    = new Date(sess.scheduled_at)
-      const dow  = d.getDay()
+      const d = new Date(sess.scheduled_at)
+      const dow = d.getDay()
       const sMin = d.getHours() * 60 + d.getMinutes()
       const eMin = sMin + (sess.duration_minutes || 60)
-      if (!roomBookedByDay[sess.room_id]) roomBookedByDay[sess.room_id] = {}
-      if (!roomBookedByDay[sess.room_id][dow]) roomBookedByDay[sess.room_id][dow] = []
-      roomBookedByDay[sess.room_id][dow].push([sMin, eMin])
+      if (!roomBusy[sess.room_id]) roomBusy[sess.room_id] = {}
+      if (!roomBusy[sess.room_id][dow]) roomBusy[sess.room_id][dow] = []
+      roomBusy[sess.room_id][dow].push([sMin, eMin])
     }
 
-    // Filter out slots that conflict with existing teacher bookings
-    const slotConflicts = (slot: any): boolean => {
-      const dow     = slot.day_of_week
-      const sMin    = timeToMin(slot.start)
-      const eMin    = timeToMin(slot.end)
-      const booked  = bookedByDay[dow] || []
+    setRoomBookings(roomBusy)
+
+    // Filter slots where teacher is busy
+    const teacherConflicts = (slot: any): boolean => {
+      const booked = teacherBusy[slot.day_of_week] || []
+      const sMin = timeToMin(slot.start)
+      const eMin = timeToMin(slot.end)
       return booked.some(([bs, be]) => sMin < be && eMin > bs)
     }
 
     const common = intersectSlots(studentSlots, teacherSlots, meta.duration)
-      .filter(slot => !slotConflicts(slot))
+      .filter(slot => !teacherConflicts(slot))
 
     setSlots(common)
 
-    // Store room booking info for room filtering later
-    ;(window as any).__roomBookedByDay = roomBookedByDay
-
-    // No overlap — suggest alternatives per teacher
     if (common.length === 0) {
       const alts: { teacher: any; slots: any[] }[] = []
       for (const t of eligibleTeachers) {
@@ -369,11 +374,10 @@ function SlotFinderModal({
                       No room
                     </button>
                     {filteredRooms.map(r => {
-                      const roomBookedByDay = (window as any).__roomBookedByDay as Record<string, Record<number, Array<[number, number]>>> | undefined
                       const dow      = selectedSlot?.day_of_week ?? -1
                       const slotMin  = selectedSlot ? timeToMin(selectedSlot.start) : -1
                       const slotEnd  = selectedSlot ? timeToMin(selectedSlot.end)   : -1
-                      const isBooked = !!roomBookedByDay?.[r.id]?.[dow]?.some(
+                      const isBooked = !!roomBookings[r.id]?.[dow]?.some(
                         ([bs, be]: [number, number]) => slotMin < be && slotEnd > bs
                       )
                       return (
