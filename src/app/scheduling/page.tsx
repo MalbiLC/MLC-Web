@@ -84,6 +84,7 @@ function SlotFinderModal({
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState('')
   const [roomBookings, setRoomBookings] = useState<Record<string, Record<number, Array<[number, number]>>>>({}) 
+  const [debugInfo, setDebugInfo] = useState<string>('')
 
   const eligibleTeachers = useMemo(() =>
     allTeachers.filter(t =>
@@ -97,15 +98,15 @@ function SlotFinderModal({
   const findSlots = async (tId: string) => {
     if (!tId) return
     setFinding(true); setSlots([]); setAltSlots([]); setSelectedSlot(null)
-    setRoomBookings({})
+    setRoomBookings({}); setDebugInfo('')
 
     const teacher = allTeachers.find(t => t.id === tId)
     const teacherSlots: any[] = teacher?.teacher_availability || []
 
     // Query 1: this teacher's scheduled sessions
-    const { data: teacherSessions } = await sb
+    const { data: teacherSessions, error: e1 } = await sb
       .from('sessions')
-      .select('scheduled_at, duration_minutes, room_id')
+      .select('scheduled_at, duration_minutes, room_id, teacher_id')
       .eq('teacher_id', tId)
       .eq('status', 'scheduled')
 
@@ -116,30 +117,27 @@ function SlotFinderModal({
       .eq('status', 'scheduled')
       .not('room_id', 'is', null)
 
-    // Convert ISO timestamp to LOCAL day-of-week + minutes since midnight
-    // Using toLocaleString to respect the browser's local timezone (WIB = UTC+7)
-    const toLocalDow = (iso: string) => {
-      const d = new Date(iso)
-      return d.getDay() // getDay() uses LOCAL time in browsers
-    }
-    const toLocalMinutes = (iso: string) => {
-      const d = new Date(iso)
-      return d.getHours() * 60 + d.getMinutes() // getHours() uses LOCAL time
-    }
+    // Convert ISO timestamp to LOCAL day-of-week + minutes
+    const toLocalDow  = (iso: string) => new Date(iso).getDay()
+    const toLocalMins = (iso: string) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes() }
 
-    // Log for debugging
-    console.log('[SlotFinder] teacherSessions:', teacherSessions?.map(s => ({
-      scheduled_at: s.scheduled_at,
-      localDay: toLocalDow(s.scheduled_at),
-      localHour: new Date(s.scheduled_at).getHours(),
-      room_id: s.room_id,
-    })))
+    // Build debug string
+    let dbg = `Teacher sessions found: ${teacherSessions?.length ?? 0} (error: ${e1?.message ?? 'none'})\n`
+    for (const s of teacherSessions || []) {
+      const d = new Date(s.scheduled_at)
+      dbg += `  → ${s.scheduled_at} | local day=${d.getDay()} hour=${d.getHours()} min=${d.getHours()*60+d.getMinutes()} | room=${s.room_id}\n`
+    }
+    dbg += `\nStudent availability slots: ${studentSlots.length}\n`
+    for (const s of studentSlots) { dbg += `  → day=${s.day_of_week} ${s.slot_start}–${s.slot_end}\n` }
+    dbg += `\nTeacher availability slots: ${teacherSlots.length}\n`
+    for (const s of teacherSlots) { dbg += `  → day=${s.day_of_week} ${s.slot_start}–${s.slot_end}\n` }
+    setDebugInfo(dbg)
 
     // Teacher busy windows: day → [[startMin, endMin]]
     const teacherBusy: Record<number, Array<[number, number]>> = {}
     for (const sess of teacherSessions || []) {
       const dow  = toLocalDow(sess.scheduled_at)
-      const sMin = toLocalMinutes(sess.scheduled_at)
+      const sMin = toLocalMins(sess.scheduled_at)
       const eMin = sMin + (sess.duration_minutes || 60)
       if (!teacherBusy[dow]) teacherBusy[dow] = []
       teacherBusy[dow].push([sMin, eMin])
@@ -150,16 +148,12 @@ function SlotFinderModal({
     for (const sess of allRoomSessions || []) {
       if (!sess.room_id) continue
       const dow  = toLocalDow(sess.scheduled_at)
-      const sMin = toLocalMinutes(sess.scheduled_at)
+      const sMin = toLocalMins(sess.scheduled_at)
       const eMin = sMin + (sess.duration_minutes || 60)
       if (!roomBusy[sess.room_id]) roomBusy[sess.room_id] = {}
       if (!roomBusy[sess.room_id][dow]) roomBusy[sess.room_id][dow] = []
       roomBusy[sess.room_id][dow].push([sMin, eMin])
     }
-
-    console.log('[SlotFinder] teacherBusy:', teacherBusy)
-    console.log('[SlotFinder] roomBusy:', roomBusy)
-
     setRoomBookings(roomBusy)
 
     // Filter slots where teacher is already busy
@@ -167,15 +161,14 @@ function SlotFinderModal({
       const booked = teacherBusy[slot.day_of_week] || []
       const sMin   = timeToMin(slot.start)
       const eMin   = timeToMin(slot.end)
-      const conflict = booked.some(([bs, be]) => sMin < be && eMin > bs)
-      if (conflict) console.log(`[SlotFinder] Teacher conflict: ${slot.start}–${slot.end} on day ${slot.day_of_week}`)
-      return conflict
+      return booked.some(([bs, be]) => sMin < be && eMin > bs)
     }
 
-    const common = intersectSlots(studentSlots, teacherSlots, meta.duration)
-      .filter(slot => !teacherConflicts(slot))
+    const rawSlots  = intersectSlots(studentSlots, teacherSlots, meta.duration)
+    const common    = rawSlots.filter(slot => !teacherConflicts(slot))
 
-    console.log('[SlotFinder] available slots after conflict filter:', common)
+    setDebugInfo(prev => prev + `\nRaw intersection slots: ${rawSlots.length}\nAfter conflict filter: ${common.length}\nteacherBusy: ${JSON.stringify(teacherBusy)}`)
+
     setSlots(common)
 
     if (common.length === 0) {
@@ -351,6 +344,14 @@ function SlotFinderModal({
           )}
 
           {finding && <p className="text-sm text-gray-400">Finding available slots…</p>}
+
+          {/* Debug panel — remove after fixing */}
+          {debugInfo && !finding && (
+            <details className="bg-gray-900 text-gray-100 rounded-xl p-3">
+              <summary className="text-xs cursor-pointer text-gray-400 font-mono">Debug info (click to expand)</summary>
+              <pre className="text-xs mt-2 whitespace-pre-wrap font-mono overflow-x-auto">{debugInfo}</pre>
+            </details>
+          )}
 
           {/* After slot selected: start date + room */}
           {selectedSlot && (
