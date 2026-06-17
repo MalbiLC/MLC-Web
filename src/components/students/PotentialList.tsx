@@ -19,6 +19,7 @@ export default function PotentialList({ students, onRefresh }: Props) {
   const [editing, setEditing] = useState<Student | null>(null)
   const [deleting, setDeleting] = useState<Student | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError,   setDeleteError]   = useState('')
 
   const toggle = (id: string) => setExpanded(e => e === id ? null : id)
 
@@ -31,8 +32,9 @@ export default function PotentialList({ students, onRefresh }: Props) {
 
   const confirmDelete = async () => {
     if (!deleting) return
-    setDeleteLoading(true)
+    setDeleteLoading(true); setDeleteError('')
     try { await deleteStudent(deleting.id); onRefresh(); setDeleting(null) }
+    catch (e: unknown) { setDeleteError(e instanceof Error ? e.message : 'Delete failed') }
     finally { setDeleteLoading(false) }
   }
 
@@ -171,7 +173,7 @@ export default function PotentialList({ students, onRefresh }: Props) {
       {deleting && (
         <ConfirmDialog
           title="Delete student"
-          message={`Are you sure you want to delete ${deleting.full_name}? This cannot be undone.`}
+          message={deleteError || `Are you sure you want to delete ${deleting?.full_name}? This cannot be undone.`}
           onConfirm={confirmDelete}
           onCancel={() => setDeleting(null)}
           loading={deleteLoading}

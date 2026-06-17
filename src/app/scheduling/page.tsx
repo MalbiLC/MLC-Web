@@ -423,9 +423,11 @@ export default function SchedulingPage() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showNewSession,  setShowNewSession]  = useState(false)
   const [editingSession,  setEditingSession]  = useState<CalendarSession | null>(null)
-  const [deletingSession, setDeletingSession] = useState<CalendarSession | null>(null)
-  const [deleteLoading,   setDeleteLoading]   = useState(false)
-  const [deleteSeries,    setDeleteSeries]    = useState(false)
+  const [deletingSession,    setDeletingSession]    = useState<CalendarSession | null>(null)
+  const [deleteLoading,      setDeleteLoading]      = useState(false)
+  const [deleteSeries,       setDeleteSeries]       = useState(false)
+  const [deletingAllStudent, setDeletingAllStudent] = useState<{ name: string; ids: string[] } | null>(null)
+  const [deleteAllLoading,   setDeleteAllLoading]   = useState(false)
 
   // For NeedsScheduling
   const [allStudents,  setAllStudents]  = useState<any[]>([])
@@ -561,6 +563,18 @@ export default function SchedulingPage() {
       await sb.from('sessions').delete().eq('id', deletingSession.id)
     }
     setDeleteLoading(false); setDeletingSession(null); setDeleteSeries(false); load()
+  }
+
+  const deleteAllStudentSessions = async () => {
+    if (!deletingAllStudent) return
+    setDeleteAllLoading(true)
+    try {
+      await sb.from('sessions').delete().in('id', deletingAllStudent.ids)
+    } finally {
+      setDeleteAllLoading(false)
+      setDeletingAllStudent(null)
+      load()
+    }
   }
 
   const physicalRooms = rooms.filter(r => r.type === 'physical')
@@ -847,6 +861,43 @@ export default function SchedulingPage() {
       )}
 
       {deletingRoom && <ConfirmDialog title="Delete room" message={`Delete "${deletingRoom.name}"?`} onConfirm={deleteRoom} onCancel={()=>setDeletingRoom(null)}/>}
+
+      {/* Delete all sessions for student confirm */}
+      {deletingAllStudent && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                <Trash2 size={18} className="text-red-500"/>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Delete all sessions?</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  This will permanently delete all <span className="font-semibold text-gray-800">{deletingAllStudent.ids.length} sessions</span> for{' '}
+                  <span className="font-semibold text-gray-800">{deletingAllStudent.name}</span>.
+                </p>
+                <p className="text-xs text-red-500 mt-2 bg-red-50 px-3 py-2 rounded-lg">
+                  ⚠ This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeletingAllStudent(null)}
+                className="btn-secondary flex-1 justify-center"
+                disabled={deleteAllLoading}>
+                Cancel
+              </button>
+              <button
+                onClick={deleteAllStudentSessions}
+                disabled={deleteAllLoading}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
+                {deleteAllLoading ? 'Deleting…' : `Delete ${deletingAllStudent.ids.length} sessions`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
