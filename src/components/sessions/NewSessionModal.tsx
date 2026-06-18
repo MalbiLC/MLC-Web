@@ -93,7 +93,7 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
   const classMeta  = classType ? CLASS_TYPE_META[classType] : null
   const isOnline   = classMeta?.online ?? false
   const isMulti    = classType === 'group' || classType === 'semi_private'
-  const maxExtra   = classMeta ? classMeta.max - 1 : 0 // slots remaining after primary student
+  const maxExtra   = classMeta ? classMeta.max - 1 : 0
 
   const studentSubjects = useMemo(() =>
     (student?.subject_sessions || []).filter((ss: any) => ss.sessions_remaining > 0),
@@ -117,8 +117,6 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
     allStudents.filter(s => s.full_name.toLowerCase().includes(studentSearch.toLowerCase())),
     [allStudents, studentSearch]
   )
-
-  // Extra student picker — show other current students not already selected
   const eligibleExtra = useMemo(() =>
     allStudents.filter(s =>
       s.id !== studentId &&
@@ -128,7 +126,6 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
     [allStudents, studentId, extraStudentIds, extraSearch]
   )
 
-  // Total sessions = auto from primary student's sessions remaining for that subject
   const totalSessions = selectedSubjectSession?.sessions_remaining ?? 0
 
   useEffect(() => {
@@ -178,14 +175,22 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
       const [hh, mm] = sessionTime.split(':').map(Number)
 
       const toInsert = preview.map((date, idx) => {
-        const dt = new Date(date); dt.setHours(hh, mm, 0, 0)
+        // Build local ISO string — no timezone suffix so Supabase stores the
+        // intended local time as-is, avoiding the UTC-shift bug from toISOString().
+        const yyyy   = date.getFullYear()
+        const mo     = String(date.getMonth() + 1).padStart(2, '0')
+        const dd     = String(date.getDate()).padStart(2, '0')
+        const hhStr  = String(hh).padStart(2, '0')
+        const mmStr  = String(mm).padStart(2, '0')
+        const scheduledAt = `${yyyy}-${mo}-${dd}T${hhStr}:${mmStr}:00`
+
         return {
           class_name:       className || null,
           class_type:       classType,
           teacher_id:       teacherId,
           room_id:          roomId    || null,
           subject_id:       subjectId,
-          scheduled_at:     dt.toISOString(),
+          scheduled_at:     scheduledAt,
           duration_minutes: classMeta!.duration,
           max_students:     classMeta!.max,
           status:           'scheduled',
@@ -200,91 +205,129 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
       if (insErr) throw new Error(`Could not save: ${insErr.message}`)
       if (!created?.length) throw new Error('Insert returned no rows — check RLS policies.')
 
-      // Link all students to every session
-      const links = created.flatMap(sess =>
-        allStudentIds.map(sid => ({ session_id: sess.id, student_id: sid }))
+      // Link all students to all sessions
+      const links = allStudentIds.flatMap(sid =>
+        created.map((s: any) => ({ session_id: s.id, student_id: sid }))
       )
-      const { error: linkErr } = await sb.from('session_students').insert(links)
-      if (linkErr) throw new Error(`Could not link students: ${linkErr.message}`)
+      if (links.length > 0) {
+        const { error: linkErr } = await sb.from('session_students').insert(links)
+        if (linkErr) throw new Error(`Sessions created but student linking failed: ${linkErr.message}`)
+      }
 
       onSuccess()
     } catch (e: any) {
       setError(e.message)
-    } finally { setSaving(false) }
+    } finally {
+      setSaving(false)
+    }
   }
 
   const visiblePreview = showAll ? preview : preview.slice(0, 5)
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-xl shadow-xl max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[92vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
-          <h2 className="text-base font-semibold">New session series</h2>
+          <h2 className="text-base font-semibold">New sessions</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
-          {/* ── 1. Primary student ── */}
+          {/* ── 1. Student ── */}
           <div>
-            <label className="label">1 · Student <span className="text-red-500">*</span></label>
-            {!studentId ? (
-              <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
-                  <Search size={14} className="text-gray-400 shrink-0"/>
-                  <input className="flex-1 text-sm outline-none placeholder-gray-400"
-                    placeholder="Search student…" value={studentSearch} autoFocus
-                    onChange={e => setStudentSearch(e.target.value)}/>
-                </div>
-                <div className="max-h-44 overflow-y-auto">
-                  {visibleStudents.length === 0
-                    ? <p className="px-3 py-3 text-sm text-gray-400">No students found.</p>
-                    : visibleStudents.map(s => (
-                      <button key={s.id} type="button" onClick={() => selectStudent(s.id)}
-                        className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
-                        <span className="text-sm font-medium text-gray-800">{s.full_name}</span>
-                        <span className="text-xs text-gray-400 capitalize">{s.package?.replace('_','-') ?? 'no package'}</span>
-                      </button>
-                    ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{student?.full_name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5 capitalize">
-                    {student?.package?.replace('_','-')} package → {classType && CLASS_TYPE_META[classType]?.label}
-                  </p>
-                </div>
-                <button onClick={() => selectStudent('')}
-                  className="text-xs text-gray-400 hover:text-gray-700 underline">Change</button>
-              </div>
-            )}
+            <label className="label">1 · Primary student <span className="text-red-500">*</span></label>
+            <div className="relative mb-2">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+              <input className="input pl-8" placeholder="Search student…"
+                value={studentSearch} onChange={e => setStudentSearch(e.target.value)}/>
+            </div>
+            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+              {visibleStudents.map(s => (
+                <button key={s.id} type="button" onClick={() => selectStudent(s.id)}
+                  className={cn('px-3 py-1.5 rounded-xl border text-sm font-medium transition-colors',
+                    studentId === s.id ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                  )}
+                  style={studentId === s.id ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
+                  {s.full_name}
+                </button>
+              ))}
+            </div>
           </div>
 
+          {/* ── Extra students for group/semi-private ── */}
+          {student && isMulti && (
+            <div>
+              <label className="label">
+                + Additional students
+                <span className="text-gray-400 text-xs font-normal ml-1">(max {maxExtra} more)</span>
+              </label>
+              {extraStudentIds.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {extraStudentIds.map(eid => {
+                    const es = allStudents.find(s => s.id === eid)
+                    return es ? (
+                      <span key={eid} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-medium bg-gray-50 border-gray-200">
+                        {es.full_name}
+                        <button type="button" onClick={() => removeExtra(eid)} className="text-gray-400 hover:text-red-500">
+                          <Trash2 size={12}/>
+                        </button>
+                      </span>
+                    ) : null
+                  })}
+                </div>
+              )}
+              {extraStudentIds.length < maxExtra && (
+                <>
+                  <button type="button" onClick={() => setShowExtraPicker(v => !v)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-medium bg-white text-gray-600 border-gray-200 hover:border-gray-400">
+                    <Plus size={13}/> Add student
+                  </button>
+                  {showExtraPicker && (
+                    <div className="mt-2 space-y-2">
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                        <input className="input pl-8" placeholder="Search…"
+                          value={extraSearch} onChange={e => setExtraSearch(e.target.value)}/>
+                      </div>
+                      <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto">
+                        {eligibleExtra.slice(0, 20).map(s => (
+                          <button key={s.id} type="button" onClick={() => addExtra(s.id)}
+                            className="px-3 py-1.5 rounded-xl border text-sm font-medium bg-white text-gray-600 border-gray-200 hover:border-gray-400">
+                            {s.full_name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* ── 2. Subject ── */}
-          {studentId && (
+          {student && (
             <div>
               <label className="label">2 · Subject <span className="text-red-500">*</span></label>
-              {studentSubjects.length === 0
-                ? <p className="text-sm text-gray-400">No active subjects with sessions remaining.</p>
-                : (
-                  <div className="flex flex-wrap gap-2">
-                    {studentSubjects.map((ss: any) => (
-                      <button key={ss.subject_id} type="button"
-                        onClick={() => { setSubjectId(ss.subject_id); setTeacherId('') }}
-                        className={cn('flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium transition-colors',
-                          subjectId === ss.subject_id ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                        )}
-                        style={subjectId === ss.subject_id ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
-                        {ss.subjects?.name}
-                        <span className={cn('text-xs', subjectId === ss.subject_id ? 'text-white/70' : 'text-gray-400')}>
-                          {ss.sessions_remaining} left
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+              {studentSubjects.length === 0 ? (
+                <p className="text-sm text-gray-400">No active subjects with sessions remaining.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {studentSubjects.map((ss: any) => (
+                    <button key={ss.subject_id} type="button"
+                      onClick={() => { setSubjectId(ss.subject_id); setTeacherId('') }}
+                      className={cn('px-4 py-2 rounded-xl border text-sm font-medium transition-colors',
+                        subjectId === ss.subject_id ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                      )}
+                      style={subjectId === ss.subject_id ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
+                      {ss.subjects?.name}
+                      <span className={cn('text-xs ml-1.5', subjectId === ss.subject_id ? 'text-white/70' : 'text-gray-400')}>
+                        {ss.sessions_remaining} left
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -292,124 +335,48 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
           {subjectId && (
             <div>
               <label className="label">3 · Teacher <span className="text-red-500">*</span></label>
-              {eligibleTeachers.length === 0
-                ? <p className="text-sm text-gray-400">No teachers found for {subjectName}.</p>
-                : (
-                  <div className="flex flex-wrap gap-2">
-                    {eligibleTeachers.map((t: any) => (
-                      <button key={t.id} type="button" onClick={() => setTeacherId(t.id)}
-                        className={cn('px-4 py-2 rounded-xl border text-sm font-medium transition-colors',
-                          teacherId === t.id ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                        )}
-                        style={teacherId === t.id ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
-                        {t.full_name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-            </div>
-          )}
-
-          {/* ── 4. Class type (read-only) ── */}
-          {studentId && classType && (
-            <div>
-              <label className="label">4 · Class type</label>
-              <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl">
-                <Check size={15} className="text-teal-600 shrink-0"/>
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{CLASS_TYPE_META[classType].label}</p>
-                  <p className="text-xs text-gray-400">
-                    {CLASS_TYPE_META[classType].duration} min · max {CLASS_TYPE_META[classType].max} student{CLASS_TYPE_META[classType].max > 1 ? 's' : ''}
-                    {isOnline ? ' · Online (Zoom)' : ''}
-                    {' · '}Auto-filled from student package
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── Add students (group / semi-private only) ── */}
-          {teacherId && isMulti && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="label mb-0">
-                  Additional students
-                  <span className="text-gray-400 text-xs font-normal ml-1">
-                    ({extraStudentIds.length}/{maxExtra} slots filled)
-                  </span>
-                </label>
-                {extraStudentIds.length < maxExtra && (
-                  <button type="button" onClick={() => setShowExtraPicker(v => !v)}
-                    className="text-xs flex items-center gap-1 text-gray-500 hover:text-gray-900 transition-colors">
-                    <Plus size={12}/> Add student
-                  </button>
-                )}
-              </div>
-
-              {/* Current extra students */}
-              {extraStudentIds.length > 0 && (
-                <div className="space-y-1.5 mb-2">
-                  {extraStudentIds.map(id => {
-                    const s = allStudents.find(x => x.id === id)
-                    return s ? (
-                      <div key={id} className="flex items-center justify-between px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg">
-                        <p className="text-sm text-gray-800 font-medium">{s.full_name}</p>
-                        <button onClick={() => removeExtra(id)}
-                          className="text-gray-300 hover:text-red-400 transition-colors">
-                          <Trash2 size={13}/>
-                        </button>
-                      </div>
-                    ) : null
-                  })}
-                </div>
-              )}
-
-              {/* Extra student search picker */}
-              {showExtraPicker && (
-                <div className="border border-gray-200 rounded-xl overflow-hidden">
-                  <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
-                    <Search size={14} className="text-gray-400 shrink-0"/>
-                    <input className="flex-1 text-sm outline-none placeholder-gray-400" autoFocus
-                      placeholder="Search student to add…"
-                      value={extraSearch} onChange={e => setExtraSearch(e.target.value)}/>
-                    <button onClick={() => setShowExtraPicker(false)} className="text-gray-400 hover:text-gray-700">
-                      <X size={14}/>
+              {eligibleTeachers.length === 0 ? (
+                <p className="text-sm text-gray-400">No teachers assigned to this subject.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {eligibleTeachers.map(t => (
+                    <button key={t.id} type="button" onClick={() => setTeacherId(t.id)}
+                      className={cn('px-4 py-2 rounded-xl border text-sm font-medium transition-colors',
+                        teacherId === t.id ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                      )}
+                      style={teacherId === t.id ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
+                      {t.full_name}
+                      {selectedSubjectSession?.teacher_id === t.id && (
+                        <span className={cn('text-xs ml-1', teacherId === t.id ? 'text-white/70' : 'text-gray-400')}>(assigned)</span>
+                      )}
                     </button>
-                  </div>
-                  <div className="max-h-36 overflow-y-auto">
-                    {eligibleExtra.length === 0
-                      ? <p className="px-3 py-3 text-sm text-gray-400">No other students available.</p>
-                      : eligibleExtra.map(s => (
-                        <button key={s.id} type="button" onClick={() => addExtra(s.id)}
-                          className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
-                          <span className="text-sm font-medium text-gray-800">{s.full_name}</span>
-                          <span className="text-xs text-gray-400 capitalize">{s.package?.replace('_','-')}</span>
-                        </button>
-                      ))}
-                  </div>
+                  ))}
                 </div>
-              )}
-
-              {extraStudentIds.length === 0 && !showExtraPicker && (
-                <p className="text-xs text-gray-400">
-                  Optional — add up to {maxExtra} more student{maxExtra !== 1 ? 's' : ''} to this {CLASS_TYPE_META[classType!]?.label} session.
-                </p>
               )}
             </div>
           )}
 
-          {/* ── 5. Notes ── */}
+          {/* ── 4. Class type info ── */}
+          {classMeta && (
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-600">
+              <Check size={13} className="text-teal-600 shrink-0"/>
+              <span>
+                <span className="font-semibold">{classMeta.label}</span>
+                {' · '}{classMeta.duration} min · max {classMeta.max} student{classMeta.max !== 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
+
+          {/* ── 5. Class name & notes ── */}
           {teacherId && (
             <div>
-              <label className="label">5 · Notes <span className="text-gray-400 text-xs font-normal">(optional)</span></label>
-              <div className="grid grid-cols-2 gap-3">
+              <label className="label">5 · Class details <span className="text-gray-400 text-xs font-normal">(optional)</span></label>
+              <div className="space-y-2">
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Class name</label>
-                  <input className="input" placeholder="e.g. Math A"
+                  <input className="input" placeholder="Class name e.g. Math A"
                     value={className} onChange={e => setClassName(e.target.value)}/>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Notes</label>
                   <input className="input" placeholder="Any notes…"
                     value={notes} onChange={e => setNotes(e.target.value)}/>
                 </div>
@@ -449,7 +416,6 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
                 </div>
               </div>
 
-              {/* Sessions info — read only */}
               {selectedSubjectSession && (
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-600">
                   <Check size={13} className="text-teal-600 shrink-0"/>

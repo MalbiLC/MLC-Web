@@ -47,7 +47,6 @@ function intersectSlots(
       const start = Math.max(timeToMin(a.slot_start), timeToMin(b.slot_start))
       const end   = Math.min(timeToMin(a.slot_end),   timeToMin(b.slot_end))
       if (end - start >= durationMin) {
-        // Generate 30-min increment slots within the window
         let s = start
         while (s + durationMin <= end) {
           result.push({ day_of_week: a.day_of_week, start: minToTime(s), end: minToTime(s + durationMin) })
@@ -73,18 +72,18 @@ function SlotFinderModal({
   const isOnline = classType === 'private_online'
   const subjectName = subjectSession.subjects?.name ?? subjectSession.subject_name ?? ''
 
-  const [teacherId,  setTeacherId]  = useState('')
-  const [slots,      setSlots]      = useState<any[]>([])
-  const [altSlots,   setAltSlots]   = useState<{ teacher: any; slots: any[] }[]>([])
-  const [finding,    setFinding]    = useState(false)
+  const [teacherId,    setTeacherId]    = useState('')
+  const [slots,        setSlots]        = useState<any[]>([])
+  const [altSlots,     setAltSlots]     = useState<{ teacher: any; slots: any[] }[]>([])
+  const [finding,      setFinding]      = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null)
-  const [roomId,     setRoomId]     = useState('')
-  const [startDate,  setStartDate]  = useState('')
-  const [sessionTime,setSessionTime]= useState('')
-  const [saving,     setSaving]     = useState(false)
-  const [error,      setError]      = useState('')
-  const [roomBookings, setRoomBookings] = useState<Record<string, Record<number, Array<[number, number]>>>>({}) 
-  const [debugInfo, setDebugInfo] = useState<string>('')
+  const [roomId,       setRoomId]       = useState('')
+  const [startDate,    setStartDate]    = useState('')
+  const [sessionTime,  setSessionTime]  = useState('')
+  const [saving,       setSaving]       = useState(false)
+  const [error,        setError]        = useState('')
+  const [roomBookings, setRoomBookings] = useState<Record<string, Record<number, Array<[number, number]>>>>({})
+  const [debugInfo,    setDebugInfo]    = useState<string>('')
 
   const eligibleTeachers = useMemo(() =>
     allTeachers.filter(t =>
@@ -94,6 +93,24 @@ function SlotFinderModal({
   )
   const filteredRooms = allRooms.filter(r => isOnline ? r.type === 'zoom' : r.type === 'physical')
   const studentSlots: any[] = student.student_availability || []
+
+  // ── Timezone helpers — component scope so room isBooked check can use them ──
+  // Minutes AHEAD of UTC (e.g. WIB UTC+7 = +420)
+  const tzOffsetMin = -new Date().getTimezoneOffset()
+
+  // Convert a UTC ISO timestamp → UTC day-of-week
+  const toUTCDow  = (iso: string) => new Date(iso).getUTCDay()
+  // Convert a UTC ISO timestamp → UTC minutes-since-midnight
+  const toUTCMins = (iso: string) => { const d = new Date(iso); return d.getUTCHours() * 60 + d.getUTCMinutes() }
+
+  // Convert a local availability slot (localDow, localMin) → UTC equivalents
+  const localToUTC = (localDow: number, localMin: number) => {
+    let utcMin = localMin - tzOffsetMin
+    let utcDow = localDow
+    if (utcMin < 0)     { utcMin += 1440; utcDow = (utcDow + 6) % 7 }
+    if (utcMin >= 1440) { utcMin -= 1440; utcDow = (utcDow + 1) % 7 }
+    return { utcDow, utcMin }
+  }
 
   const findSlots = async (tId: string) => {
     if (!tId) return
@@ -116,24 +133,6 @@ function SlotFinderModal({
       .select('scheduled_at, duration_minutes, room_id')
       .eq('status', 'scheduled')
       .not('room_id', 'is', null)
-
-    // Sessions stored as UTC. Availability slots use local day/time.
-    // Strategy: convert BOTH to UTC minutes for comparison.
-    // tzOffsetMin = minutes AHEAD of UTC (e.g. WIB UTC+7 = +420)
-    const tzOffsetMin = -new Date().getTimezoneOffset()
-
-    // Convert a UTC ISO timestamp to UTC day + UTC minutes
-    const toUTCDow  = (iso: string) => new Date(iso).getUTCDay()
-    const toUTCMins = (iso: string) => { const d = new Date(iso); return d.getUTCHours() * 60 + d.getUTCMinutes() }
-
-    // Convert local slot (day=1 Mon, start=09:00 local) to UTC equivalents
-    const localToUTC = (localDow: number, localMin: number) => {
-      let utcMin = localMin - tzOffsetMin
-      let utcDow = localDow
-      if (utcMin < 0)     { utcMin += 1440; utcDow = (utcDow + 6) % 7 }
-      if (utcMin >= 1440) { utcMin -= 1440; utcDow = (utcDow + 1) % 7 }
-      return { utcDow, utcMin }
-    }
 
     // Build debug info
     let dbg = `Teacher sessions found: ${teacherSessions?.length ?? 0} (error: ${e1?.message ?? 'none'})\n`
@@ -207,7 +206,6 @@ function SlotFinderModal({
 
   const pickSlot = (slot: any) => {
     setSelectedSlot(slot)
-    // Pre-fill start date to next occurrence of that day
     const today = new Date(); today.setHours(0,0,0,0)
     const diff  = (slot.day_of_week - today.getDay() + 7) % 7 || 7
     const next  = new Date(today); next.setDate(today.getDate() + diff)
@@ -224,14 +222,11 @@ function SlotFinderModal({
       const seriesId = crypto.randomUUID()
       const totalSessions = subjectSession.sessions_remaining
 
-      // Build local ISO strings that preserve the intended local time
-      // Format: "2026-06-21T09:00:00" — no timezone suffix, interpreted as local by Supabase
-      // This avoids UTC conversion shifting the day
+      // Build local ISO strings — no timezone suffix, avoids UTC-shift bug
       const toLocalISO = (dateStr: string, timeStr: string): string => {
         return `${dateStr}T${timeStr}:00`
       }
 
-      // Build weekly dates starting from startDate
       const dates: string[] = []
       const start = new Date(startDate + 'T00:00:00')
       for (let i = 0; i < totalSessions; i++) {
@@ -318,12 +313,12 @@ function SlotFinderModal({
                       return (
                         <button key={i} type="button" onClick={() => pickSlot(slot)}
                           className={cn('flex flex-col px-4 py-3 rounded-xl border text-left transition-colors',
-                            isSelected ? 'text-white border-transparent' : 'bg-gray-50 border-gray-100 hover:border-gray-300 hover:bg-white'
+                            isSelected ? 'text-white border-transparent' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
                           )}
                           style={isSelected ? { backgroundColor: 'var(--mlc-teal)' } : {}}>
                           <span className="text-sm font-semibold">{DAYS[slot.day_of_week]}</span>
                           <span className={cn('text-xs mt-0.5', isSelected ? 'text-white/70' : 'text-gray-400')}>
-                            {slot.start} – {slot.end} · {meta.duration}m
+                            {slot.start} – {slot.end}
                           </span>
                         </button>
                       )
@@ -331,39 +326,35 @@ function SlotFinderModal({
                   </div>
                 </div>
               ) : (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle size={15} className="text-amber-600 shrink-0"/>
-                    <p className="text-sm font-semibold text-amber-800">No overlapping slots found</p>
-                  </div>
-                  <p className="text-xs text-amber-700 mb-3">
-                    {student.full_name}&apos;s availability doesn&apos;t overlap with the selected teacher.
-                    {studentSlots.length === 0 ? ' Student has no availability set.' : ''}
-                  </p>
-                  {altSlots.length > 0 && (
+                <div>
+                  <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl">
+                    <AlertCircle size={16} className="text-amber-500 shrink-0 mt-0.5"/>
                     <div>
-                      <p className="text-xs font-semibold text-amber-800 mb-2">Suggested alternatives with other teachers:</p>
-                      {altSlots.map(({ teacher, slots: altS }, ti) => (
-                        <div key={ti} className="mb-2">
-                          <p className="text-xs text-amber-700 mb-1">
-                            <span className="font-medium">{teacher.full_name}</span> is available:
-                          </p>
-                          <div className="flex flex-wrap gap-1">
-                            {altS.map((s: any, si: number) => (
-                              <button key={si} type="button"
-                                onClick={() => { selectTeacher(teacher.id) }}
-                                className="text-xs px-2.5 py-1 bg-white border border-amber-200 rounded-lg text-amber-800 hover:bg-amber-100 transition-colors">
+                      <p className="text-sm font-medium text-amber-800">No common slots found</p>
+                      <p className="text-xs text-amber-600 mt-0.5">
+                        Student and selected teacher have no overlapping availability.
+                      </p>
+                    </div>
+                  </div>
+                  {altSlots.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-500 mb-2">Other available teachers:</p>
+                      {altSlots.map(({ teacher, slots: ts }) => (
+                        <div key={teacher.id} className="mb-2">
+                          <p className="text-xs text-gray-600 font-medium mb-1">{teacher.full_name}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {ts.map((s: any, i: number) => (
+                              <span key={i} className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded-lg">
                                 {DAYS[s.day_of_week]} {s.start}
-                              </button>
+                              </span>
                             ))}
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
-                  {altSlots.length === 0 && (
-                    <p className="text-xs text-amber-600">No other teachers available either. Update availability in the Students or Teachers tab.</p>
-                  )}
+                  <p className="text-xs text-gray-400 mt-2">
+                    Update availability in the Students or Teachers tab.</p>
                 </div>
               )}
             </>
@@ -371,7 +362,7 @@ function SlotFinderModal({
 
           {finding && <p className="text-sm text-gray-400">Finding available slots…</p>}
 
-          {/* Debug panel — remove after fixing */}
+          {/* Debug panel */}
           {debugInfo && !finding && (
             <details className="bg-gray-900 text-gray-100 rounded-xl p-3">
               <summary className="text-xs cursor-pointer text-gray-400 font-mono">Debug info (click to expand)</summary>
@@ -397,7 +388,6 @@ function SlotFinderModal({
                 </div>
               </div>
 
-              {/* Session count info */}
               <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-600">
                 <Clock size={13} className="text-teal-600 shrink-0"/>
                 <span>
@@ -424,11 +414,14 @@ function SlotFinderModal({
                       No room
                     </button>
                     {filteredRooms.map(r => {
-                      const dow      = selectedSlot?.day_of_week ?? -1
-                      const slotMin  = selectedSlot ? timeToMin(selectedSlot.start) : -1
-                      const slotEnd  = selectedSlot ? timeToMin(selectedSlot.end)   : -1
-                      const isBooked = !!roomBookings[r.id]?.[dow]?.some(
-                        ([bs, be]: [number, number]) => slotMin < be && slotEnd > bs
+                      // FIX: convert the local slot to UTC before checking room bookings,
+                      // so we compare apples-to-apples (UTC vs UTC).
+                      const { utcDow, utcMin } = selectedSlot
+                        ? localToUTC(selectedSlot.day_of_week, timeToMin(selectedSlot.start))
+                        : { utcDow: -1, utcMin: -1 }
+                      const utcEnd  = utcMin + meta.duration
+                      const isBooked = !!roomBookings[r.id]?.[utcDow]?.some(
+                        ([bs, be]: [number, number]) => utcMin < be && utcEnd > bs
                       )
                       return (
                         <button key={r.id} type="button"
@@ -796,53 +789,64 @@ export default function SchedulingPage() {
                         <div className="text-right"><p className="font-semibold text-gray-700 text-sm">{completed}</p><p>done</p></div>
                         <div className="text-right"><p className="font-semibold text-gray-700 text-sm">{studentSessions.length}</p><p>total</p></div>
                       </div>
-                      {isOpen ? <ChevronUp size={15} className="text-gray-400 shrink-0"/> : <ChevronDown size={15} className="text-gray-400 shrink-0"/>}
+                      {isOpen ? <ChevronUp size={16} className="text-gray-400 shrink-0"/> : <ChevronDown size={16} className="text-gray-400 shrink-0"/>}
                     </button>
 
                     {isOpen && (
-                      <div className="border-t border-gray-50 bg-gray-50/30 px-5 py-4 space-y-4">
+                      <div className="border-t border-gray-100">
+                        {/* Delete all button */}
+                        <div className="px-5 py-2 flex justify-end border-b border-gray-50">
+                          <button
+                            onClick={() => setDeletingAllStudent({ name: studentName, ids: studentSessions.map(s => s.id) })}
+                            className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors">
+                            <Trash2 size={12}/> Delete all sessions
+                          </button>
+                        </div>
                         {Object.entries(bySubject).map(([subjectName, subSessions]) => (
-                          <div key={subjectName}>
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="badge bg-gray-200 text-gray-700 font-semibold">{subjectName}</span>
-                              <span className="text-xs text-gray-400">
-                                {subSessions.filter(s=>s.status==='scheduled').length} upcoming · {subSessions.filter(s=>s.status==='completed').length} done · {subSessions.length} total
-                              </span>
-                            </div>
+                          <div key={subjectName} className="px-5 py-3">
+                            <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
+                              <CalendarClock size={12}/> {subjectName}
+                            </p>
                             <div className="space-y-1.5">
-                              {subSessions.sort((a,b) => new Date(a.scheduled_at).getTime()-new Date(b.scheduled_at).getTime()).map(s => {
-                                const isPast = new Date(s.scheduled_at) < new Date()
-                                const c = CT_COLORS[s.class_type||'private'] || CT_COLORS.private
+                              {subSessions.sort((a,b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()).map(sess => {
+                                const statusColor = {
+                                  scheduled: 'bg-blue-50 text-blue-700',
+                                  completed: 'bg-teal-50 text-teal-700',
+                                  cancelled: 'bg-red-50 text-red-600',
+                                  rescheduled: 'bg-amber-50 text-amber-700',
+                                }[sess.status] ?? 'bg-gray-100 text-gray-600'
+
                                 return (
-                                  <div key={s.id} className={cn('flex items-center gap-3 px-3 py-2.5 bg-white border border-gray-100 rounded-lg', s.status==='cancelled'&&'opacity-40')}>
-                                    <div className="w-1 h-7 rounded-full shrink-0" style={{ backgroundColor:c.border }}/>
-                                    <div className="w-24 shrink-0">
-                                      <p className="text-xs font-medium text-gray-800">{new Date(s.scheduled_at).toLocaleDateString('id-ID',{day:'numeric',month:'short'})}</p>
-                                      <p className="text-xs text-gray-400">{formatTime(s.scheduled_at)}</p>
-                                    </div>
+                                  <div key={sess.id}
+                                    className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl text-xs">
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-xs text-gray-500 truncate">
-                                        {s.teacher_name}{s.room_name && ` · ${s.room_name}`}
-                                      </p>
-                                      {s.series_index && <p className="text-xs text-gray-300">Session {s.series_index}</p>}
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-medium text-gray-800">
+                                          {new Date(sess.scheduled_at).toLocaleDateString('id-ID', { weekday:'short', day:'numeric', month:'short' })}
+                                        </span>
+                                        <span className="text-gray-500">{formatTime(sess.scheduled_at)}</span>
+                                        {sess.duration_minutes && <span className="text-gray-400">{formatDuration(sess.duration_minutes)}</span>}
+                                        <span className={cn('px-1.5 py-0.5 rounded-md text-[10px] font-semibold capitalize', statusColor)}>{sess.status}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 mt-0.5 text-gray-400">
+                                        <span>{sess.teacher_name}</span>
+                                        {sess.room_name && (
+                                          <span className="flex items-center gap-0.5">
+                                            {sess.room_type === 'zoom' ? <Monitor size={10}/> : <MapPin size={10}/>}
+                                            {sess.room_name}
+                                          </span>
+                                        )}
+                                        {sess.series_index && <span>#{sess.series_index}</span>}
+                                      </div>
                                     </div>
-                                    <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
-                                      s.status==='completed'?'bg-teal-50 text-teal-700':s.status==='cancelled'?'bg-gray-100 text-gray-400':s.status==='rescheduled'?'bg-amber-50 text-amber-700':isPast?'bg-red-50 text-red-600':'bg-blue-50 text-blue-700'
-                                    )}>{s.status==='scheduled'&&isPast?'overdue':s.status}</span>
                                     <div className="flex items-center gap-1 shrink-0">
-                                      {s.status==='scheduled' && (
-                                        <button title="Mark completed"
-                                          onClick={async()=>{await sb.from('sessions').update({status:'completed'}).eq('id',s.id);load()}}
-                                          className="w-7 h-7 flex items-center justify-center rounded-lg text-white text-xs font-bold"
-                                          style={{backgroundColor:'var(--mlc-teal)'}}>✓</button>
-                                      )}
-                                      <button title="Edit" onClick={()=>setEditingSession(s)}
-                                        className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
-                                        <Pencil size={12}/>
+                                      <button onClick={() => setEditingSession(sess)}
+                                        className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors">
+                                        <Pencil size={13}/>
                                       </button>
-                                      <button title="Delete" onClick={()=>{setDeletingSession(s);setDeleteSeries(false)}}
-                                        className="w-7 h-7 flex items-center justify-center rounded-lg border border-red-100 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
-                                        <Trash2 size={12}/>
+                                      <button onClick={() => { setDeletingSession(sess); setDeleteSeries(false) }}
+                                        className="p-1.5 rounded-lg hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors">
+                                        <Trash2 size={13}/>
                                       </button>
                                     </div>
                                   </div>
@@ -860,74 +864,96 @@ export default function SchedulingPage() {
           )}
         </div>
 
-        {/* ── Rooms ── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Physical rooms</p>
-            {physicalRooms.length === 0 ? <div className="card text-center py-6 text-gray-400 text-sm">No physical rooms yet.</div>
-            : <div className="space-y-2">{physicalRooms.map(r=>(
-              <div key={r.id} className="card flex items-start justify-between py-3">
-                <div>
-                  <div className="flex items-center gap-2"><MapPin size={14} className="text-gray-400"/><p className="text-sm font-medium">{r.name}</p></div>
-                  <div className="flex items-center gap-1.5 mt-0.5 ml-5"><Users size={11} className="text-gray-400"/><p className="text-xs text-gray-400">Capacity: {r.capacity}</p></div>
-                  {r.notes&&<p className="text-xs text-gray-500 ml-5 mt-1">{r.notes}</p>}
-                </div>
-                <div className="flex gap-1">
-                  <button onClick={()=>openRoomModal(r)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded hover:bg-gray-50"><Pencil size={13}/></button>
-                  <button onClick={()=>setDeletingRoom(r)} className="p-1.5 text-gray-400 hover:text-red-500 rounded hover:bg-red-50"><Trash2 size={13}/></button>
-                </div>
-              </div>
-            ))}</div>}
-          </div>
-          <div>
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Zoom / Online</p>
-            {zoomRooms.length === 0 ? <div className="card text-center py-6 text-gray-400 text-sm">No Zoom links yet.</div>
-            : <div className="space-y-2">{zoomRooms.map(r=>(
-              <div key={r.id} className="card flex items-start justify-between py-3">
-                <div>
-                  <div className="flex items-center gap-2"><Monitor size={14} className="text-gray-400"/><p className="text-sm font-medium">{r.name}</p></div>
-                  {r.zoom_link&&<a href={r.zoom_link} target="_blank" rel="noopener noreferrer" className="text-xs ml-5 truncate block max-w-[200px]" style={{color:'var(--mlc-teal)'}}>{r.zoom_link}</a>}
-                  {r.notes&&<p className="text-xs text-gray-500 ml-5 mt-1">{r.notes}</p>}
-                </div>
-                <div className="flex gap-1">
-                  <button onClick={()=>openRoomModal(r)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded hover:bg-gray-50"><Pencil size={13}/></button>
-                  <button onClick={()=>setDeletingRoom(r)} className="p-1.5 text-gray-400 hover:text-red-500 rounded hover:bg-red-50"><Trash2 size={13}/></button>
-                </div>
-              </div>
-            ))}</div>}
-          </div>
+        {/* ── Rooms section ── */}
+        <div>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Rooms</p>
+          {rooms.length === 0 ? (
+            <div className="card text-center py-8 text-sm text-gray-400">No rooms added yet.</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {[{ label: 'Physical', icon: <MapPin size={14}/>, list: physicalRooms },
+                { label: 'Zoom', icon: <Monitor size={14}/>, list: zoomRooms }].map(({ label, icon, list }) =>
+                list.length > 0 && (
+                  <div key={label}>
+                    <p className="text-xs font-medium text-gray-400 mb-2 flex items-center gap-1.5">{icon} {label}</p>
+                    <div className="space-y-2">
+                      {list.map(room => (
+                        <div key={room.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900">{room.name}</p>
+                            {room.capacity > 0 && <p className="text-xs text-gray-400">Cap {room.capacity}</p>}
+                            {room.zoom_link && <p className="text-xs text-gray-400 truncate">{room.zoom_link}</p>}
+                            {room.notes && <p className="text-xs text-gray-400">{room.notes}</p>}
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <button onClick={() => openRoomModal(room)}
+                              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
+                              <Pencil size={13}/>
+                            </button>
+                            <button onClick={() => setDeletingRoom(room)}
+                              className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500">
+                              <Trash2 size={13}/>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Room modal */}
+      {/* ── Room modal ── */}
       {showRoomModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-base font-semibold">{editRoom?'Edit room':'Add room'}</h2>
-              <button onClick={()=>setShowRoomModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
+              <h2 className="text-base font-semibold">{editRoom ? 'Edit room' : 'Add room'}</h2>
+              <button onClick={() => setShowRoomModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
             </div>
             <form onSubmit={saveRoom} className="px-6 py-5 space-y-4">
-              <div><label className="label">Room name <span className="text-red-500">*</span></label><input className="input" required value={roomForm.name} onChange={e=>setRoomForm(f=>({...f,name:e.target.value}))}/></div>
+              <div>
+                <label className="label">Name</label>
+                <input className="input" required value={roomForm.name} onChange={e => setRoomForm(f => ({...f, name:e.target.value}))}/>
+              </div>
               <div>
                 <label className="label">Type</label>
                 <div className="flex gap-2">
-                  {[{value:'physical',label:'Physical',icon:MapPin},{value:'zoom',label:'Zoom',icon:Monitor}].map(t=>(
-                    <button key={t.value} type="button" onClick={()=>setRoomForm(f=>({...f,type:t.value}))}
-                      className={cn('flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium border transition-colors',
-                        roomForm.type===t.value?'text-white border-transparent':'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                      )} style={roomForm.type===t.value?{backgroundColor:'var(--mlc-teal)'}:{}}>
-                      <t.icon size={14}/> {t.label}
+                  {['physical','zoom'].map(t => (
+                    <button key={t} type="button" onClick={() => setRoomForm(f => ({...f, type:t}))}
+                      className={cn('flex-1 py-2 rounded-xl border text-sm font-medium transition-colors capitalize',
+                        roomForm.type===t ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200'
+                      )}
+                      style={roomForm.type===t ? { backgroundColor:'var(--mlc-teal)' } : {}}>
+                      {t}
                     </button>
                   ))}
                 </div>
               </div>
-              {roomForm.type==='physical'&&<div><label className="label">Capacity</label><input className="input" type="number" min="1" value={roomForm.capacity} onChange={e=>setRoomForm(f=>({...f,capacity:e.target.value}))}/></div>}
-              {roomForm.type==='zoom'&&<div><label className="label">Zoom link</label><input className="input" placeholder="https://zoom.us/j/..." value={roomForm.zoom_link} onChange={e=>setRoomForm(f=>({...f,zoom_link:e.target.value}))}/></div>}
-              <div><label className="label">Notes / Equipment</label><textarea className="input resize-none" rows={2} value={roomForm.notes} onChange={e=>setRoomForm(f=>({...f,notes:e.target.value}))}/></div>
+              {roomForm.type === 'zoom' && (
+                <div>
+                  <label className="label">Zoom link</label>
+                  <input className="input" type="url" placeholder="https://zoom.us/j/…" value={roomForm.zoom_link} onChange={e => setRoomForm(f => ({...f, zoom_link:e.target.value}))}/>
+                </div>
+              )}
+              {roomForm.type === 'physical' && (
+                <div>
+                  <label className="label">Capacity</label>
+                  <input className="input" type="number" min="1" value={roomForm.capacity} onChange={e => setRoomForm(f => ({...f, capacity:e.target.value}))}/>
+                </div>
+              )}
+              <div>
+                <label className="label">Notes <span className="text-gray-400 text-xs font-normal">(optional)</span></label>
+                <input className="input" value={roomForm.notes} onChange={e => setRoomForm(f => ({...f, notes:e.target.value}))}/>
+              </div>
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={()=>setShowRoomModal(false)} className="btn-secondary flex-1 justify-center">Cancel</button>
-                <button type="submit" className="btn-primary flex-1 justify-center" disabled={roomSaving}>{roomSaving?'Saving…':editRoom?'Save':'Add room'}</button>
+                <button type="button" onClick={() => setShowRoomModal(false)} className="btn-secondary flex-1 justify-center">Cancel</button>
+                <button type="submit" disabled={roomSaving} className="btn-primary flex-1 justify-center">
+                  {roomSaving ? 'Saving…' : editRoom ? 'Save' : 'Add room'}
+                </button>
               </div>
             </form>
           </div>

@@ -49,11 +49,18 @@ export default function EditSessionModal({ session, onClose, onSuccess }: Props)
     setSaving(true); setError('')
     try {
       const [hh, mm] = time.split(':').map(Number)
-      const dt = new Date(date + 'T00:00:00')
-      dt.setHours(hh, mm, 0, 0)
+
+      // Build local ISO string — no timezone suffix so Supabase stores the
+      // intended local time as-is, avoiding the UTC-shift bug from toISOString().
+      const yyyy = date.slice(0, 4)
+      const mo   = date.slice(5, 7)
+      const dd   = date.slice(8, 10)
+      const hhStr  = String(hh).padStart(2, '0')
+      const mmStr  = String(mm).padStart(2, '0')
+      const scheduledAt = `${yyyy}-${mo}-${dd}T${hhStr}:${mmStr}:00`
 
       const { error: err } = await sb.from('sessions').update({
-        scheduled_at: dt.toISOString(),
+        scheduled_at: scheduledAt,
         room_id:      roomId  || null,
         class_name:   className || null,
         notes:        notes   || null,
