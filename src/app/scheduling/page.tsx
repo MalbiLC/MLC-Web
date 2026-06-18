@@ -114,7 +114,7 @@ function SlotFinderModal({
   const findSlots = async (tId: string) => {
     if (!tId) return
     setFinding(true); setSlots([]); setAltSlots([]); setSelectedSlot(null)
-    setRoomBookings({}); setDebugInfo('')
+    setRoomBookings({})
 
     const teacher = allTeachers.find(t => t.id === tId)
     const teacherSlots: any[] = teacher?.teacher_availability || []
