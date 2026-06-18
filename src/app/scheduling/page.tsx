@@ -209,7 +209,12 @@ function SlotFinderModal({
     const today = new Date(); today.setHours(0,0,0,0)
     const diff  = (slot.day_of_week - today.getDay() + 7) % 7 || 7
     const next  = new Date(today); next.setDate(today.getDate() + diff)
-    setStartDate(next.toISOString().split('T')[0])
+    // Use local date parts — NOT toISOString() which converts to UTC and shifts
+    // the date back 7h in WIB (UTC+7), turning Monday Jun 22 into Sunday Jun 21.
+    const yyyy = next.getFullYear()
+    const mm   = String(next.getMonth() + 1).padStart(2, '0')
+    const dd   = String(next.getDate()).padStart(2, '0')
+    setStartDate(`${yyyy}-${mm}-${dd}`)
     setSessionTime(slot.start)
   }
 
@@ -377,7 +382,7 @@ function SlotFinderModal({
                 <div>
                   <label className="label">3 · Start date</label>
                   <input className="input" type="date" value={startDate}
-                    min={new Date().toISOString().split('T')[0]}
+                    min={(() => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}` })()}
                     onChange={e => setStartDate(e.target.value)}/>
                   <p className="text-xs text-gray-400 mt-1">Weekly on {DAYS[selectedSlot.day_of_week]}s</p>
                 </div>
