@@ -83,7 +83,6 @@ function SlotFinderModal({
   const [saving,       setSaving]       = useState(false)
   const [error,        setError]        = useState('')
   const [roomBookings, setRoomBookings] = useState<Record<string, Record<number, Array<[number, number]>>>>({})
-  const [debugInfo,    setDebugInfo]    = useState<string>('')
 
   const eligibleTeachers = useMemo(() =>
     allTeachers.filter(t =>
@@ -134,15 +133,7 @@ function SlotFinderModal({
       .eq('status', 'scheduled')
       .not('room_id', 'is', null)
 
-    // Build debug info
-    let dbg = `Teacher sessions found: ${teacherSessions?.length ?? 0} (error: ${e1?.message ?? 'none'})\n`
-    dbg += `Browser tzOffset: ${tzOffsetMin} min (UTC${tzOffsetMin>=0?'+':''}${tzOffsetMin/60})\n`
-    for (const s of teacherSessions || []) {
-      dbg += `  → ${s.scheduled_at} | UTC day=${toUTCDow(s.scheduled_at)} UTC min=${toUTCMins(s.scheduled_at)} | room=${s.room_id}\n`
-    }
-    dbg += `\nStudent avail: ${studentSlots.map((s:any) => `day=${s.day_of_week} ${s.slot_start}`).join(', ')}\n`
-    dbg += `Teacher avail: ${teacherSlots.map((s:any) => `day=${s.day_of_week} ${s.slot_start}`).join(', ')}\n`
-    setDebugInfo(dbg)
+
 
     // Teacher busy windows in UTC: utcDay → [[utcStart, utcEnd]]
     const teacherBusy: Record<number, Array<[number, number]>> = {}
@@ -178,14 +169,7 @@ function SlotFinderModal({
     const rawSlots = intersectSlots(studentSlots, teacherSlots, meta.duration)
     const common   = rawSlots.filter(slot => !teacherConflicts(slot))
 
-    setDebugInfo(prev => prev +
-      `\nteacherBusy (UTC): ${JSON.stringify(teacherBusy)}\n` +
-      `Raw slots: ${rawSlots.length}, After filter: ${common.length}\n` +
-      rawSlots.slice(0,3).map((s:any) => {
-        const { utcDow, utcMin } = localToUTC(s.day_of_week, timeToMin(s.start))
-        return `  local day=${s.day_of_week} ${s.start} → UTC day=${utcDow} min=${utcMin} conflict=${teacherConflicts(s)}`
-      }).join('\n')
-    )
+
 
     setSlots(common)
 
@@ -362,39 +346,27 @@ function SlotFinderModal({
 
           {finding && <p className="text-sm text-gray-400">Finding available slots…</p>}
 
-          {/* Debug panel */}
-          {debugInfo && !finding && (
-            <details className="bg-gray-900 text-gray-100 rounded-xl p-3">
-              <summary className="text-xs cursor-pointer text-gray-400 font-mono">Debug info (click to expand)</summary>
-              <pre className="text-xs mt-2 whitespace-pre-wrap font-mono overflow-x-auto">{debugInfo}</pre>
-            </details>
-          )}
+
 
           {/* After slot selected: start date + room */}
           {selectedSlot && (
             <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">3 · Start date</label>
-                  <input className="input" type="date" value={startDate}
-                    min={(() => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}` })()}
-                    onChange={e => setStartDate(e.target.value)}/>
-                  <p className="text-xs text-gray-400 mt-1">Weekly on {DAYS[selectedSlot.day_of_week]}s</p>
-                </div>
-                <div>
-                  <label className="label">Time</label>
-                  <input className="input" type="time" value={sessionTime}
-                    onChange={e => setSessionTime(e.target.value)}/>
-                </div>
+              {/* Summary banner */}
+              <div className="px-4 py-3 bg-teal-50 border border-teal-100 rounded-xl text-sm">
+                <p className="font-semibold text-teal-800">{DAYS[selectedSlot.day_of_week]}s · {selectedSlot.start} – {selectedSlot.end}</p>
+                <p className="text-xs text-teal-600 mt-0.5">
+                  {subjectSession.sessions_remaining} sessions · every {DAYS[selectedSlot.day_of_week]} from{' '}
+                  {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { day:'numeric', month:'short', year:'numeric' }) : '—'}
+                </p>
               </div>
 
-              <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-600">
-                <Clock size={13} className="text-teal-600 shrink-0"/>
-                <span>
-                  <span className="font-semibold">{subjectSession.sessions_remaining} sessions</span> will be created
-                  {' · '}every {DAYS[selectedSlot.day_of_week]} from{' '}
-                  {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { day:'numeric', month:'short' }) : '…'}
-                </span>
+              {/* Start date — full width, no duplicate time field */}
+              <div>
+                <label className="label">3 · Start date</label>
+                <input className="input" type="date" value={startDate}
+                  min={(() => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}` })()}
+                  onChange={e => setStartDate(e.target.value)}/>
+                <p className="text-xs text-gray-400 mt-1">First session date — repeats weekly on {DAYS[selectedSlot.day_of_week]}s at {selectedSlot.start}</p>
               </div>
 
               <div>
@@ -830,13 +802,15 @@ export default function SchedulingPage() {
                                       </div>
                                       <div className="flex items-center gap-2 mt-0.5 text-gray-400">
                                         <span>{sess.teacher_name}</span>
-                                        {sess.room_name && (
-                                          <span className="flex items-center gap-0.5">
+                                        {sess.room_name ? (
+                                          <span className="flex items-center gap-0.5 font-medium text-gray-600">
                                             {sess.room_type === 'zoom' ? <Monitor size={10}/> : <MapPin size={10}/>}
                                             {sess.room_name}
                                           </span>
+                                        ) : (
+                                          <span className="text-gray-300">No room</span>
                                         )}
-                                        {sess.series_index && <span>#{sess.series_index}</span>}
+                                        {sess.series_index && <span className="text-gray-300 text-[10px]">#{sess.series_index}</span>}
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">

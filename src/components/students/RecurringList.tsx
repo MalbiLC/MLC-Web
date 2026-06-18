@@ -224,11 +224,16 @@ export default function RecurringList({ students, onRefresh }: Props) {
                       <div className="space-y-2">
                         {subjectSessions.map(ss => (
                           <div key={ss.id} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-gray-100 rounded-lg">
-                            <div className="flex-1">
+                            <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-gray-800">{ss.subject?.name}</p>
-                              {(ss as any).package_name && <p className="text-xs text-gray-400 mt-0.5">{(ss as any).package_name}</p>}
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {ss.teacher?.full_name
+                                  ? <span className="text-gray-500 font-medium">{ss.teacher.full_name}</span>
+                                  : <span className="italic">No teacher assigned</span>}
+                              </p>
+                              {(ss as any).package_name && <p className="text-xs text-gray-400">{(ss as any).package_name}</p>}
                             </div>
-                            <div className="text-right">
+                            <div className="text-right shrink-0">
                               <p className={cn(
                                 'text-sm font-semibold',
                                 ss.sessions_remaining === 0 ? 'text-red-600' :
