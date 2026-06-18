@@ -63,7 +63,10 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
   const [teacherId,    setTeacherId]    = useState('')
   const [roomId,       setRoomId]       = useState('')
   const [days,         setDays]         = useState<number[]>([])
-  const [startDate,    setStartDate]    = useState(new Date().toISOString().split('T')[0])
+  const [startDate,    setStartDate]    = useState(() => {
+    const t = new Date()
+    return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`
+  })
   const [sessionTime,  setSessionTime]  = useState('14:00')
   const [className,    setClassName]    = useState('')
   const [notes,        setNotes]        = useState('')
@@ -175,14 +178,12 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
       const [hh, mm] = sessionTime.split(':').map(Number)
 
       const toInsert = preview.map((date, idx) => {
-        // Build local ISO string — no timezone suffix so Supabase stores the
-        // intended local time as-is, avoiding the UTC-shift bug from toISOString().
-        const yyyy   = date.getFullYear()
-        const mo     = String(date.getMonth() + 1).padStart(2, '0')
-        const dd     = String(date.getDate()).padStart(2, '0')
-        const hhStr  = String(hh).padStart(2, '0')
-        const mmStr  = String(mm).padStart(2, '0')
-        const scheduledAt = `${yyyy}-${mo}-${dd}T${hhStr}:${mmStr}:00`
+        // Use new Date(y, m, d, h, min) which creates a LOCAL-timezone Date object.
+        // .toISOString() correctly converts local->UTC (e.g. 9AM WIB -> 02:00Z).
+        // Ensures: correct UTC storage, correct display, correct conflict detection.
+        const scheduledAt = new Date(
+          date.getFullYear(), date.getMonth(), date.getDate(), hh, mm, 0
+        ).toISOString()
 
         return {
           class_name:       className || null,
@@ -392,7 +393,7 @@ export default function NewSessionModal({ onClose, onSuccess }: Props) {
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Start date</label>
                   <input className="input" type="date" value={startDate}
-                    min={new Date().toISOString().split('T')[0]}
+                    min={(() => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}` })()}
                     onChange={e => setStartDate(e.target.value)}/>
                 </div>
                 <div>

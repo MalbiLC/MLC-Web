@@ -21,7 +21,9 @@ export default function EditSessionModal({ session, onClose, onSuccess }: Props)
 
   const scheduled = new Date(session.scheduled_at)
 
-  const [date,      setDate]      = useState(scheduled.toISOString().split('T')[0])
+  const [date,      setDate]      = useState(
+    `${scheduled.getFullYear()}-${String(scheduled.getMonth()+1).padStart(2,'0')}-${String(scheduled.getDate()).padStart(2,'0')}`
+  )
   const [time,      setTime]      = useState(formatTime(session.scheduled_at))
   const [roomId,    setRoomId]    = useState('')
   const [className, setClassName] = useState(session.class_name ?? '')
@@ -50,14 +52,10 @@ export default function EditSessionModal({ session, onClose, onSuccess }: Props)
     try {
       const [hh, mm] = time.split(':').map(Number)
 
-      // Build local ISO string — no timezone suffix so Supabase stores the
-      // intended local time as-is, avoiding the UTC-shift bug from toISOString().
-      const yyyy = date.slice(0, 4)
-      const mo   = date.slice(5, 7)
-      const dd   = date.slice(8, 10)
-      const hhStr  = String(hh).padStart(2, '0')
-      const mmStr  = String(mm).padStart(2, '0')
-      const scheduledAt = `${yyyy}-${mo}-${dd}T${hhStr}:${mmStr}:00`
+      // Use new Date(y, m, d, h, min) to create a LOCAL-timezone Date.
+      // .toISOString() correctly converts local->UTC (e.g. 9AM WIB -> 02:00Z).
+      const [y, mo, dd] = date.split('-').map(Number)
+      const scheduledAt = new Date(y, mo - 1, dd, hh, mm, 0).toISOString()
 
       const { error: err } = await sb.from('sessions').update({
         scheduled_at: scheduledAt,

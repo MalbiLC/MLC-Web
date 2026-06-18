@@ -227,20 +227,15 @@ function SlotFinderModal({
       const seriesId = crypto.randomUUID()
       const totalSessions = subjectSession.sessions_remaining
 
-      // Build local ISO strings — no timezone suffix, avoids UTC-shift bug
-      const toLocalISO = (dateStr: string, timeStr: string): string => {
-        return `${dateStr}T${timeStr}:00`
-      }
-
+      // Build proper UTC timestamps: new Date(y,m,d,h,min) creates a LOCAL Date
+      // then .toISOString() correctly converts local->UTC (e.g. 9AM WIB -> 02:00Z).
+      const [sHH, sMM] = sessionTime.split(':').map(Number)
       const dates: string[] = []
-      const start = new Date(startDate + 'T00:00:00')
+      const start = new Date(startDate + 'T00:00:00') // local midnight
       for (let i = 0; i < totalSessions; i++) {
         const d = new Date(start)
         d.setDate(d.getDate() + i * 7)
-        const yyyy = d.getFullYear()
-        const mm   = String(d.getMonth() + 1).padStart(2, '0')
-        const dd   = String(d.getDate()).padStart(2, '0')
-        dates.push(toLocalISO(`${yyyy}-${mm}-${dd}`, sessionTime))
+        dates.push(new Date(d.getFullYear(), d.getMonth(), d.getDate(), sHH, sMM, 0).toISOString())
       }
 
       const toInsert = dates.map((scheduledAt, idx) => ({
@@ -398,7 +393,7 @@ function SlotFinderModal({
                 <span>
                   <span className="font-semibold">{subjectSession.sessions_remaining} sessions</span> will be created
                   {' · '}every {DAYS[selectedSlot.day_of_week]} from{' '}
-                  {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('id-ID', { day:'numeric', month:'short' }) : '…'}
+                  {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { day:'numeric', month:'short' }) : '…'}
                 </span>
               </div>
 
@@ -827,7 +822,7 @@ export default function SchedulingPage() {
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <span className="font-medium text-gray-800">
-                                          {new Date(sess.scheduled_at).toLocaleDateString('id-ID', { weekday:'short', day:'numeric', month:'short' })}
+                                          {new Date(sess.scheduled_at).toLocaleDateString('en-US', { weekday:'long', day:'numeric', month:'short', year:'numeric' })}
                                         </span>
                                         <span className="text-gray-500">{formatTime(sess.scheduled_at)}</span>
                                         {sess.duration_minutes && <span className="text-gray-400">{formatDuration(sess.duration_minutes)}</span>}
@@ -976,7 +971,7 @@ export default function SchedulingPage() {
               <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0"><Trash2 size={18} className="text-red-500"/></div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900">Delete session?</h3>
-                <p className="text-sm text-gray-500 mt-1">{new Date(deletingSession.scheduled_at).toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long'})} · {formatTime(deletingSession.scheduled_at)}</p>
+                <p className="text-sm text-gray-500 mt-1">{new Date(deletingSession.scheduled_at).toLocaleDateString('en-US',{weekday:'long',day:'numeric',month:'long'})} · {formatTime(deletingSession.scheduled_at)}</p>
               </div>
             </div>
             {deletingSession.series_id && (
